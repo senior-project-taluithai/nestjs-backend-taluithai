@@ -12,16 +12,19 @@ export class MailService {
   ) {}
 
   async sendResetPasswordEmail(email: string, token: string) {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     const resetLink = `${frontendUrl}/reset-password?token=${token}`;
-    
+
     // Log for debugging
     this.logger.log(`Sending Reset Password Email to ${email}`);
     this.logger.log(`Reset Token: ${token}`);
     this.logger.log(`Reset Link: ${resetLink}`);
 
     await this.transporter.sendMail({
-      from: this.configService.get<string>('MAIL_FROM') || '"No Reply" <noreply@example.com>',
+      from:
+        this.configService.get<string>('MAIL_FROM') ||
+        '"No Reply" <noreply@example.com>',
       to: email,
       subject: 'Password Reset Request',
       html: `

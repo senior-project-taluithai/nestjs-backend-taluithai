@@ -1,4 +1,13 @@
-import { Controller, Post, Body, Res, UseGuards, Get, Req, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Res,
+  UseGuards,
+  Get,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -25,13 +34,19 @@ export class AuthController {
   @ApiOperation({ summary: 'User login' })
   @ApiResponse({ status: 200, description: 'User successfully logged in.' })
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
-  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) response: Response) {
-    const user = await this.authService.validateUser(loginDto.email, loginDto.password);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const user = await this.authService.validateUser(
+      loginDto.email,
+      loginDto.password,
+    );
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
     const { access_token } = await this.authService.login(user);
-    
+
     response.cookie('Authentication', access_token, {
       httpOnly: true,
       expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 1 day
@@ -51,7 +66,10 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt'))
   @Get('me')
   @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({ status: 200, description: 'User profile retrieved successfully.' })
+  @ApiResponse({
+    status: 200,
+    description: 'User profile retrieved successfully.',
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   getProfile(@Req() req) {
     return req.user;
@@ -61,15 +79,16 @@ export class AuthController {
   @ApiOperation({ summary: 'Request password reset' })
   @ApiResponse({ status: 200, description: 'If user exists, email sent.' })
   @ApiBody({ type: ForgotPasswordDto })
-  async forgotPassword(@Body() body: ForgotPasswordDto) { // Using any for body to avoid import issues temporarily, ideally use correct DTO
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    // Using any for body to avoid import issues temporarily, ideally use correct DTO
     // We need to inject MailService to send the email.
     // For now, let's just call auth service and later we will integrate MailService properly
     // in the auth service or here. Ideally AuthService handles logic.
     const token = await this.authService.forgotPassword(body.email);
     if (token) {
-        // Send email here via MailService (need to inject it)
-        // For strict separation, AuthService should call MailService. 
-        // Let's refactor AuthService to call MailService.
+      // Send email here via MailService (need to inject it)
+      // For strict separation, AuthService should call MailService.
+      // Let's refactor AuthService to call MailService.
     }
     return { message: 'If user exists, email sent' };
   }

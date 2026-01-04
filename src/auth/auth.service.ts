@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -25,7 +29,7 @@ export class AuthService {
       ...registerDto,
       password: hashedPassword,
     });
-    
+
     // Don't return password
     user.password = undefined;
     return user;
@@ -54,7 +58,8 @@ export class AuthService {
       return;
     }
 
-    const token = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const token =
+      Math.random().toString(36).substring(2) + Date.now().toString(36);
     // Set token expiration to 1 hour (use proper date handling in production)
     const expires = new Date();
     expires.setHours(expires.getHours() + 1);
@@ -70,19 +75,19 @@ export class AuthService {
 
   async resetPassword(token: string, newPass: string) {
     // This is a simplified check. In production, use a more robust way to find user by token.
-    // Ideally user service should have findByResetToken, but we can do a query here if we inject repo, 
+    // Ideally user service should have findByResetToken, but we can do a query here if we inject repo,
     // or just scan (inefficient). For now, let's assume we implement findByResetToken in UsersService.
     const user = await this.usersService.findByResetToken(token);
-    
+
     if (!user || !user.resetTokenExp || user.resetTokenExp < new Date()) {
-        throw new BadRequestException('Invalid or expired token');
+      throw new BadRequestException('Invalid or expired token');
     }
 
     const hashedPassword = await bcrypt.hash(newPass, 10);
     await this.usersService.update(user.id, {
-        password: hashedPassword,
-        resetToken: null,
-        resetTokenExp: null,
+      password: hashedPassword,
+      resetToken: null,
+      resetTokenExp: null,
     });
   }
 }
