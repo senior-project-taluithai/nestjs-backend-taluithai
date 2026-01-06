@@ -90,4 +90,26 @@ export class AuthService {
       resetTokenExp: null,
     });
   }
+
+  async changePassword(userId: string, oldPass: string, newPass: string) {
+    const user = await this.usersService.findOne(userId);
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    if (!user.password) {
+      throw new BadRequestException('User does not have a password set');
+    }
+    const isMatch = await bcrypt.compare(oldPass, user.password);
+    if (!isMatch) {
+      throw new BadRequestException('Incorrect old password');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPass, 10);
+    await this.usersService.update(userId, {
+      password: hashedPassword,
+    });
+
+    return { message: 'Password changed successfully' };
+  }
 }

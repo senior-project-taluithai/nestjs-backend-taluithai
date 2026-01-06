@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
+import { TravelPreferencesModule } from './travel-preferences/travel-preferences.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { MailModule } from './mail/mail.module';
     UsersModule,
     AuthModule,
     MailModule,
+    TravelPreferencesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

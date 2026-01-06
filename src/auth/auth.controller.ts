@@ -15,7 +15,14 @@ import type { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -101,5 +108,21 @@ export class AuthController {
   async resetPassword(@Body() body: ResetPasswordDto) {
     await this.authService.resetPassword(body.token, body.newPassword);
     return { message: 'Password has been reset' };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('change-password')
+  @ApiOperation({ summary: 'Change password' })
+  @ApiResponse({ status: 200, description: 'Password changed successfully.' })
+  @ApiResponse({ status: 400, description: 'Incorrect old password.' })
+  @ApiResponse({ status: 401, description: 'Unauthorized.' })
+  @ApiBody({ type: ChangePasswordDto })
+  async changePassword(@Req() req, @Body() body: ChangePasswordDto) {
+    return this.authService.changePassword(
+      req.user.id,
+      body.oldPassword,
+      body.newPassword,
+    );
   }
 }
