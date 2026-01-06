@@ -4,7 +4,10 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
+import { TravelPreference } from '../../travel-preferences/entities/travel-preference.entity';
 
 @Entity('users')
 export class User {
@@ -34,4 +37,18 @@ export class User {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @ManyToMany(() => TravelPreference)
+  @JoinTable({
+    name: 'user_travel_preference', // custom name for the join table
+    joinColumn: {
+      name: 'user_id',
+      referencedColumnName: 'id',
+    },
+    inverseJoinColumn: {
+      name: 'travel_preference_id',
+      referencedColumnName: 'id',
+    },
+  })
+  travelPreferences: TravelPreference[];
 }
