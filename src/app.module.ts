@@ -7,6 +7,12 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
 import { TravelPreferencesModule } from './travel-preferences/travel-preferences.module';
+import { ProvincesModule } from './provinces/provinces.module';
+import { CategoriesModule } from './categories/categories.module';
+import { PlacesModule } from './places/places.module';
+import { EventsModule } from './events/events.module';
+import { FavoritesModule } from './favorites/favorites.module';
+import { TripsModule } from './trips/trips.module';
 
 @Module({
   imports: [
@@ -31,6 +37,12 @@ import { TravelPreferencesModule } from './travel-preferences/travel-preferences
     AuthModule,
     MailModule,
     TravelPreferencesModule,
+    ProvincesModule,
+    CategoriesModule,
+    PlacesModule,
+    EventsModule,
+    FavoritesModule,
+    TripsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
