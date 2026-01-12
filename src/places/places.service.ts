@@ -30,4 +30,45 @@ export class PlacesService {
     const newPlace = this.placesRepository.create(place);
     return this.placesRepository.save(newPlace);
   }
+
+  async getRecommended(): Promise<Place[]> {
+    // Mock: just take first 10
+    return this.placesRepository.find({
+      take: 10,
+      relations: ['province', 'categories'],
+    });
+  }
+
+  async getPopular(): Promise<Place[]> {
+    return this.placesRepository.find({
+      take: 10,
+      order: { rating: 'DESC' },
+      relations: ['province', 'categories'],
+    });
+  }
+
+  async getBestSeason(): Promise<Place[]> {
+    const currentMonth = new Date().getMonth() + 1; // 1-12
+    let season: 'summer' | 'winter' | 'rainy' | 'all_year' = 'all_year';
+
+    // Simple Thai season logic
+    // Summer: Feb - May (2-5)
+    // Rainy: Jun - Oct (6-10)
+    // Winter: Nov - Jan (11-1)
+    if (currentMonth >= 2 && currentMonth <= 5) {
+      season = 'summer';
+    } else if (currentMonth >= 6 && currentMonth <= 10) {
+      season = 'rainy';
+    } else {
+      season = 'winter';
+    }
+
+    // TODO: Filter by bestSeason enum matches or 'all_year'
+    return this.placesRepository.createQueryBuilder('place')
+      .leftJoinAndSelect('place.province', 'province')
+      .leftJoinAndSelect('place.categories', 'categories')
+      .where('place.best_season = :season OR place.best_season = :allYear', { season, allYear: 'all_year' })
+      .take(4)
+      .getMany();
+  }
 }

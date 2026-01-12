@@ -30,4 +30,22 @@ export class EventsService {
     const newEvent = this.eventsRepository.create(event);
     return this.eventsRepository.save(newEvent);
   }
+
+  async getRecommended(): Promise<Event[]> {
+    // Mock: just take first 10
+    return this.eventsRepository.find({
+      take: 10,
+      relations: ['province', 'categories'],
+    });
+  }
+
+  async getUpcoming(): Promise<Event[]> {
+    return this.eventsRepository.createQueryBuilder('event')
+      .leftJoinAndSelect('event.province', 'province')
+      .leftJoinAndSelect('event.categories', 'categories')
+      .where('event.start_date > :now', { now: new Date() })
+      .orderBy('event.start_date', 'ASC')
+      .take(10)
+      .getMany();
+  }
 }
