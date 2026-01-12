@@ -11,6 +11,7 @@ import {
 import { Province } from '../../provinces/entities/province.entity';
 import { Category } from '../../categories/entities/category.entity';
 import { EventReview } from './event-review.entity';
+import { EventImage } from './event-image.entity';
 
 
 @Entity('events')
@@ -61,8 +62,8 @@ export class Event {
   @Column({ name: 'thumbnail_url' })
   thumbnailUrl: string;
 
-  @Column('text', { array: true, name: 'image_urls', default: {} })
-  imageUrls: string[];
+  @OneToMany(() => EventImage, (image) => image.event, { cascade: true })
+  images: EventImage[];
 
   @ManyToMany(() => Category)
   @JoinTable({

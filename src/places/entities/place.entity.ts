@@ -11,6 +11,7 @@ import {
 import { Province } from '../../provinces/entities/province.entity';
 import { Category } from '../../categories/entities/category.entity';
 import { PlaceReview } from './place-review.entity';
+import { PlaceImage } from './place-image.entity';
 
 export enum BestSeasonEnum {
   SUMMER = 'summer',
@@ -62,8 +63,8 @@ export class Place {
   @Column({ name: 'thumbnail_url' })
   thumbnailUrl: string;
 
-  @Column('text', { array: true, name: 'image_urls', default: {} })
-  imageUrls: string[];
+  @OneToMany(() => PlaceImage, (image) => image.place, { cascade: true })
+  images: PlaceImage[];
 
   @ManyToMany(() => Category)
   @JoinTable({

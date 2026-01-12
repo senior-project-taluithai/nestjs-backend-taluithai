@@ -15,18 +15,22 @@ export class PlacesService {
 
   async findAll(): Promise<Place[]> {
     return this.placesRepository.find({
-      relations: ['province', 'categories'],
+      relations: ['province', 'categories', 'images'],
     });
   }
 
   async findOne(id: number): Promise<Place | null> {
     return this.placesRepository.findOne({
       where: { id },
-      relations: ['province', 'categories', 'reviews', 'reviews.user'],
+      relations: ['province', 'categories', 'reviews', 'reviews.user', 'images'],
     });
   }
 
-  async create(place: Partial<Place>): Promise<Place> {
+  async create(place: Partial<Place> & { imageUrls?: string[] }): Promise<Place> {
+    if (place.imageUrls && Array.isArray(place.imageUrls)) {
+      place.images = place.imageUrls.map((url) => ({ url } as any));
+      delete place.imageUrls;
+    }
     const newPlace = this.placesRepository.create(place);
     return this.placesRepository.save(newPlace);
   }
@@ -35,7 +39,7 @@ export class PlacesService {
     // Mock: just take first 10
     return this.placesRepository.find({
       take: 10,
-      relations: ['province', 'categories'],
+      relations: ['province', 'categories', 'images'],
     });
   }
 
@@ -43,7 +47,7 @@ export class PlacesService {
     return this.placesRepository.find({
       take: 10,
       order: { rating: 'DESC' },
-      relations: ['province', 'categories'],
+      relations: ['province', 'categories', 'images'],
     });
   }
 
