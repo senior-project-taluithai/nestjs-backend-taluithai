@@ -8,6 +8,24 @@ import { EventDto, EventDetailDto } from './dto/event.dto';
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
+  @Get('recommended')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get recommended events' })
+  @ApiResponse({ status: 200, description: 'Return recommended events.', type: [EventDto] })
+  async getRecommended() {
+    const events = await this.eventsService.getRecommended();
+    return events.map(e => new EventDto({ ...e, categories: e.categories?.map(c => c.name) || [] }));
+  }
+
+  @Get('upcoming')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get upcoming events' })
+  @ApiResponse({ status: 200, description: 'Return upcoming events.', type: [EventDto] })
+  async getUpcoming() {
+    const events = await this.eventsService.getUpcoming();
+    return events.map(e => new EventDto({ ...e, categories: e.categories?.map(c => c.name) || [] }));
+  }
+
   @Get()
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get all events' })
