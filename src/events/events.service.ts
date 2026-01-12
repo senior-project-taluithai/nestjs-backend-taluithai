@@ -15,18 +15,22 @@ export class EventsService {
 
   async findAll(): Promise<Event[]> {
     return this.eventsRepository.find({
-      relations: ['province', 'categories'],
+      relations: ['province', 'categories', 'images'],
     });
   }
 
   async findOne(id: number): Promise<Event | null> {
     return this.eventsRepository.findOne({
       where: { id },
-      relations: ['province', 'categories', 'reviews', 'reviews.user'],
+      relations: ['province', 'categories', 'reviews', 'reviews.user', 'images'],
     });
   }
 
-  async create(event: Partial<Event>): Promise<Event> {
+  async create(event: Partial<Event> & { imageUrls?: string[] }): Promise<Event> {
+    if (event.imageUrls && Array.isArray(event.imageUrls)) {
+      event.images = event.imageUrls.map((url) => ({ url } as any));
+      delete event.imageUrls;
+    }
     const newEvent = this.eventsRepository.create(event);
     return this.eventsRepository.save(newEvent);
   }
@@ -35,7 +39,7 @@ export class EventsService {
     // Mock: just take first 10
     return this.eventsRepository.find({
       take: 10,
-      relations: ['province', 'categories'],
+      relations: ['province', 'categories', 'images'],
     });
   }
 
@@ -43,6 +47,7 @@ export class EventsService {
     return this.eventsRepository.createQueryBuilder('event')
       .leftJoinAndSelect('event.province', 'province')
       .leftJoinAndSelect('event.categories', 'categories')
+      .leftJoinAndSelect('event.images', 'images')
       .where('event.start_date > :now', { now: new Date() })
       .orderBy('event.start_date', 'ASC')
       .take(10)

@@ -14,7 +14,7 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Return recommended events.', type: [EventDto] })
   async getRecommended() {
     const events = await this.eventsService.getRecommended();
-    return events.map(e => new EventDto({ ...e, categories: e.categories?.map(c => c.name) || [] }));
+    return events.map(e => new EventDto({ ...e, categories: e.categories?.map(c => c.name) || [], imageUrls: e.images?.map(i => i.url) || [] }));
   }
 
   @Get('upcoming')
@@ -23,7 +23,7 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Return upcoming events.', type: [EventDto] })
   async getUpcoming() {
     const events = await this.eventsService.getUpcoming();
-    return events.map(e => new EventDto({ ...e, categories: e.categories?.map(c => c.name) || [] }));
+    return events.map(e => new EventDto({ ...e, categories: e.categories?.map(c => c.name) || [], imageUrls: e.images?.map(i => i.url) || [] }));
   }
 
   @Get()
@@ -37,6 +37,7 @@ export class EventsController {
         new EventDto({
           ...event,
           categories: event.categories?.map((c) => c.name) || [],
+          imageUrls: event.images?.map((i) => i.url) || [],
         }),
     );
   }
@@ -51,6 +52,7 @@ export class EventsController {
     return new EventDetailDto({
       ...event,
       categories: event.categories?.map((c) => c.name) || [],
+      imageUrls: event.images?.map((i) => i.url) || [],
     });
   }
 
