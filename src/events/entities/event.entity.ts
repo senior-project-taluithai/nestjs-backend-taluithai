@@ -27,6 +27,9 @@ export class Event {
   @Column()
   detail: string;
 
+  @Column({ name: 'detail_en', nullable: true })
+  detailEn: string;
+
   @Column({ name: 'start_date', type: 'timestamp' })
   startDate: Date;
 
