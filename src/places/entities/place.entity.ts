@@ -33,6 +33,9 @@ export class Place {
   @Column()
   detail: string;
 
+  @Column({ name: 'detail_en', nullable: true })
+  detailEn: string;
+
   @Column({ name: 'province_id' })
   provinceId: number;
 
