@@ -3,15 +3,13 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
-  ManyToMany,
-  JoinTable,
   JoinColumn,
   OneToMany,
 } from 'typeorm';
 import { Province } from '../../provinces/entities/province.entity';
-import { Category } from '../../categories/entities/category.entity';
 import { EventReview } from './event-review.entity';
 import { EventImage } from './event-image.entity';
+import { EventCategory } from './event-category.entity';
 
 
 @Entity('events')
@@ -65,13 +63,8 @@ export class Event {
   @OneToMany(() => EventImage, (image) => image.event, { cascade: true })
   images: EventImage[];
 
-  @ManyToMany(() => Category)
-  @JoinTable({
-    name: 'event_categories',
-    joinColumn: { name: 'event_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'category_id', referencedColumnName: 'id' },
-  })
-  categories: Category[];
+  @OneToMany(() => EventCategory, (eventCategory) => eventCategory.event, { cascade: true })
+  eventCategories: EventCategory[];
 
   @OneToMany(() => EventReview, (review) => review.event)
   reviews: EventReview[];

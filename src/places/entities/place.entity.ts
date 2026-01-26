@@ -3,15 +3,13 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
-  ManyToMany,
-  JoinTable,
   JoinColumn,
   OneToMany,
 } from 'typeorm';
 import { Province } from '../../provinces/entities/province.entity';
-import { Category } from '../../categories/entities/category.entity';
 import { PlaceReview } from './place-review.entity';
 import { PlaceImage } from './place-image.entity';
+import { PlaceCategory } from './place-category.entity';
 
 export enum BestSeasonEnum {
   SUMMER = 'summer',
@@ -66,13 +64,8 @@ export class Place {
   @OneToMany(() => PlaceImage, (image) => image.place, { cascade: true })
   images: PlaceImage[];
 
-  @ManyToMany(() => Category)
-  @JoinTable({
-    name: 'place_categories',
-    joinColumn: { name: 'place_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'category_id', referencedColumnName: 'id' },
-  })
-  categories: Category[];
+  @OneToMany(() => PlaceCategory, (placeCategory) => placeCategory.place, { cascade: true })
+  placeCategories: PlaceCategory[];
 
   @OneToMany(() => PlaceReview, (review) => review.place)
   reviews: PlaceReview[];

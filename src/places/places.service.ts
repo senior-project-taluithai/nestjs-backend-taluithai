@@ -15,14 +15,14 @@ export class PlacesService {
 
   async findAll(): Promise<Place[]> {
     return this.placesRepository.find({
-      relations: ['province', 'categories', 'images'],
+      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
     });
   }
 
   async findOne(id: number): Promise<Place | null> {
     return this.placesRepository.findOne({
       where: { id },
-      relations: ['province', 'categories', 'reviews', 'reviews.user', 'images'],
+      relations: ['province', 'placeCategories', 'placeCategories.category', 'reviews', 'reviews.user', 'images'],
     });
   }
 
@@ -39,7 +39,7 @@ export class PlacesService {
     // Mock: just take first 10
     return this.placesRepository.find({
       take: 10,
-      relations: ['province', 'categories', 'images'],
+      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
     });
   }
 
@@ -47,7 +47,7 @@ export class PlacesService {
     return this.placesRepository.find({
       take: 10,
       order: { rating: 'DESC' },
-      relations: ['province', 'categories', 'images'],
+      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
     });
   }
 
@@ -70,7 +70,8 @@ export class PlacesService {
     // TODO: Filter by bestSeason enum matches or 'all_year'
     return this.placesRepository.createQueryBuilder('place')
       .leftJoinAndSelect('place.province', 'province')
-      .leftJoinAndSelect('place.categories', 'categories')
+      .leftJoinAndSelect('place.placeCategories', 'placeCategories')
+      .leftJoinAndSelect('placeCategories.category', 'category')
       .where('place.best_season = :season OR place.best_season = :allYear', { season, allYear: 'all_year' })
       .take(4)
       .getMany();

@@ -15,14 +15,14 @@ export class EventsService {
 
   async findAll(): Promise<Event[]> {
     return this.eventsRepository.find({
-      relations: ['province', 'categories', 'images'],
+      relations: ['province', 'eventCategories', 'eventCategories.category', 'images'],
     });
   }
 
   async findOne(id: number): Promise<Event | null> {
     return this.eventsRepository.findOne({
       where: { id },
-      relations: ['province', 'categories', 'reviews', 'reviews.user', 'images'],
+      relations: ['province', 'eventCategories', 'eventCategories.category', 'reviews', 'reviews.user', 'images'],
     });
   }
 
@@ -39,14 +39,15 @@ export class EventsService {
     // Mock: just take first 10
     return this.eventsRepository.find({
       take: 10,
-      relations: ['province', 'categories', 'images'],
+      relations: ['province', 'eventCategories', 'eventCategories.category', 'images'],
     });
   }
 
   async getUpcoming(): Promise<Event[]> {
     return this.eventsRepository.createQueryBuilder('event')
       .leftJoinAndSelect('event.province', 'province')
-      .leftJoinAndSelect('event.categories', 'categories')
+      .leftJoinAndSelect('event.eventCategories', 'eventCategories')
+      .leftJoinAndSelect('eventCategories.category', 'category')
       .leftJoinAndSelect('event.images', 'images')
       .where('event.start_date > :now', { now: new Date() })
       .orderBy('event.start_date', 'ASC')

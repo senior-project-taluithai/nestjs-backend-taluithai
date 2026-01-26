@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInt
 import { ProvincesService } from './provinces.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ProvinceDto } from './dto/province.dto';
+import { CreateProvinceDto } from './dto/create-province.dto';
 import { plainToInstance } from 'class-transformer';
 
 @ApiTags('Provinces')
@@ -31,7 +32,9 @@ export class ProvincesController {
   // Optional: Endpoint to seed or create province, mainly for admin
   @Post()
   @ApiOperation({ summary: 'Create province' })
-  create(@Body() body: any) {
-    return this.provincesService.create(body);
+  @ApiResponse({ status: 201, description: 'The province has been successfully created.', type: ProvinceDto })
+  async create(@Body() createProvinceDto: CreateProvinceDto) {
+    const province = await this.provincesService.create(createProvinceDto);
+    return new ProvinceDto(province);
   }
 }
