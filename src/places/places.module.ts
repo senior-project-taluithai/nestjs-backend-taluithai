@@ -3,11 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
 import { PlaceReview } from './entities/place-review.entity';
 import { PlaceImage } from './entities/place-image.entity';
+import { PlaceCategory } from './entities/place-category.entity';
 import { PlacesController } from './places.controller';
 import { PlacesService } from './places.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Place, PlaceReview, PlaceImage])],
+  imports: [TypeOrmModule.forFeature([Place, PlaceReview, PlaceImage, PlaceCategory])],
   controllers: [PlacesController],
   providers: [PlacesService],
   exports: [PlacesService],

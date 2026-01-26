@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Province } from './entities/province.entity';
+import { CreateProvinceDto } from './dto/create-province.dto';
 
 @Injectable()
 export class ProvincesService {
@@ -18,8 +19,8 @@ export class ProvincesService {
     return this.provincesRepository.findOne({ where: { id } });
   }
 
-  async create(province: Partial<Province>): Promise<Province> {
-    const newProvince = this.provincesRepository.create(province);
+  async create(createProvinceDto: CreateProvinceDto): Promise<Province> {
+    const newProvince = this.provincesRepository.create(createProvinceDto);
     return this.provincesRepository.save(newProvince);
   }
 }
