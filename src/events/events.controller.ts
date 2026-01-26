@@ -14,7 +14,7 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Return recommended events.', type: [EventDto] })
   async getRecommended() {
     const events = await this.eventsService.getRecommended();
-    return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.name) || [], imageUrls: e.images?.map(i => i.url) || [] }));
+    return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.nameEn) || [], imageUrls: e.images?.map(i => i.url) || [] }));
   }
 
   @Get('upcoming')
@@ -23,7 +23,7 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Return upcoming events.', type: [EventDto] })
   async getUpcoming() {
     const events = await this.eventsService.getUpcoming();
-    return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.name) || [], imageUrls: e.images?.map(i => i.url) || [] }));
+    return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.nameEn) || [], imageUrls: e.images?.map(i => i.url) || [] }));
   }
 
   @Get()
@@ -36,7 +36,7 @@ export class EventsController {
       (event) =>
         new EventDto({
           ...event,
-          categories: event.eventCategories?.map((ec) => ec.category.name) || [],
+          categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
           imageUrls: event.images?.map((i) => i.url) || [],
         }),
     );
@@ -51,7 +51,7 @@ export class EventsController {
     if (!event) return null;
     return new EventDetailDto({
       ...event,
-      categories: event.eventCategories?.map((ec) => ec.category.name) || [],
+      categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
       imageUrls: event.images?.map((i) => i.url) || [],
     });
   }

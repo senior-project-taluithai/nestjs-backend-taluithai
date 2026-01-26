@@ -49,8 +49,8 @@ export class EventsService {
       .leftJoinAndSelect('event.eventCategories', 'eventCategories')
       .leftJoinAndSelect('eventCategories.category', 'category')
       .leftJoinAndSelect('event.images', 'images')
-      .where('event.start_date > :now', { now: new Date() })
-      .orderBy('event.start_date', 'ASC')
+      .where('event.startDate > :now', { now: new Date() })
+      .orderBy('event.startDate', 'ASC')
       .take(10)
       .getMany();
   }
