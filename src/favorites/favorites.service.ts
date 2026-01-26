@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserFavoritePlace } from './entities/user-favorite-place.entity';
 import { UserFavoriteEvent } from './entities/user-favorite-event.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
+import { PlaceDto } from '../places/dto/place.dto';
+import { EventDto } from '../events/dto/event.dto';
 
 @Injectable()
 export class FavoritesService {
@@ -13,18 +17,56 @@ export class FavoritesService {
     private favEventsRepo: Repository<UserFavoriteEvent>,
   ) {}
 
-  async getFavoritePlaces(userId: string): Promise<UserFavoritePlace[]> {
-    return this.favPlacesRepo.find({
+  async getFavoritePlaces(userId: string, paginationDto: PaginationDto): Promise<PaginatedResultDto<PlaceDto>> {
+    const { page = 1, pageSize = 10 } = paginationDto;
+    const [favorites, total] = await this.favPlacesRepo.findAndCount({
       where: { userId },
-      relations: ['place', 'place.province', 'place.categories'],
+      relations: ['place', 'place.province', 'place.placeCategories', 'place.placeCategories.category', 'place.images'],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
+
+    const data = favorites.map((fav) => {
+      const place = fav.place;
+      return new PlaceDto({
+        ...place,
+        categories: place.placeCategories?.map((pc) => pc.category.nameEn) || [],
+        imageUrls: place.images?.map((i) => i.url) || [],
+      });
+    });
+
+    return {
+      data,
+      total,
+      page,
+      lastPage: Math.ceil(total / pageSize),
+    };
   }
 
-  async getFavoriteEvents(userId: string): Promise<UserFavoriteEvent[]> {
-    return this.favEventsRepo.find({
+  async getFavoriteEvents(userId: string, paginationDto: PaginationDto): Promise<PaginatedResultDto<EventDto>> {
+    const { page = 1, pageSize = 10 } = paginationDto;
+    const [favorites, total] = await this.favEventsRepo.findAndCount({
       where: { userId },
-      relations: ['event', 'event.province', 'event.categories'],
+      relations: ['event', 'event.province', 'event.eventCategories', 'event.eventCategories.category', 'event.images'],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
+
+    const data = favorites.map((fav) => {
+      const event = fav.event;
+      return new EventDto({
+        ...event,
+        categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
+        imageUrls: event.images?.map((i) => i.url) || [],
+      });
+    });
+
+    return {
+      data,
+      total,
+      page,
+      lastPage: Math.ceil(total / pageSize),
+    };
   }
 
   async toggleFavoritePlace(userId: string, placeId: number) {

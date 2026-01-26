@@ -5,7 +5,14 @@ import {
   Param,
   UseGuards,
   Req,
+  Query,
+  UseInterceptors,
+  ClassSerializerInterceptor,
 } from '@nestjs/common';
+import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { PlaceDto } from '../places/dto/place.dto';
+import { EventDto } from '../events/dto/event.dto';
 import { FavoritesService } from './favorites.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -13,20 +20,23 @@ import { AuthGuard } from '@nestjs/passport';
 @ApiTags('Favorites')
 @Controller('favorites')
 @UseGuards(AuthGuard('jwt'))
+@UseInterceptors(ClassSerializerInterceptor)
 @ApiBearerAuth()
 export class FavoritesController {
   constructor(private readonly favoritesService: FavoritesService) {}
 
   @Get('places')
   @ApiOperation({ summary: 'Get favorite places' })
-  getFavoritePlaces(@Req() req) {
-    return this.favoritesService.getFavoritePlaces(req.user.id);
+  @ApiResponse({ status: 200, description: 'Return paginated favorite places.', type: PaginatedResultDto })
+  getFavoritePlaces(@Req() req, @Query() paginationDto: PaginationDto) {
+    return this.favoritesService.getFavoritePlaces(req.user.id, paginationDto);
   }
 
   @Get('events')
   @ApiOperation({ summary: 'Get favorite events' })
-  getFavoriteEvents(@Req() req) {
-    return this.favoritesService.getFavoriteEvents(req.user.id);
+  @ApiResponse({ status: 200, description: 'Return paginated favorite events.', type: PaginatedResultDto })
+  getFavoriteEvents(@Req() req, @Query() paginationDto: PaginationDto) {
+    return this.favoritesService.getFavoriteEvents(req.user.id, paginationDto);
   }
 
   @Post('places/:id')
