@@ -14,7 +14,7 @@ export class PlacesController {
   @ApiResponse({ status: 200, description: 'Return recommended places.', type: [PlaceDto] })
   async getRecommended() {
     const places = await this.placesService.getRecommended();
-    return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.name) || [], imageUrls: p.images?.map(i => i.url) || [] }));
+    return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
   }
 
   @Get('popular')
@@ -23,7 +23,7 @@ export class PlacesController {
   @ApiResponse({ status: 200, description: 'Return popular places.', type: [PlaceDto] })
   async getPopular() {
     const places = await this.placesService.getPopular();
-    return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.name) || [], imageUrls: p.images?.map(i => i.url) || [] }));
+    return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
   }
 
   @Get('best-for-season')
@@ -32,7 +32,7 @@ export class PlacesController {
   @ApiResponse({ status: 200, description: 'Return best places for season.', type: [PlaceDto] })
   async getBestSeason() {
     const places = await this.placesService.getBestSeason();
-    return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.name) || [], imageUrls: p.images?.map(i => i.url) || [] }));
+    return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
   }
 
   @Get()
@@ -45,7 +45,7 @@ export class PlacesController {
       (place) =>
         new PlaceDto({
           ...place,
-          categories: place.placeCategories?.map((pc) => pc.category.name) || [],
+          categories: place.placeCategories?.map((pc) => pc.category.nameEn) || [],
           imageUrls: place.images?.map((i) => i.url) || [],
         }),
     );
@@ -60,7 +60,7 @@ export class PlacesController {
     if (!place) return null;
     return new PlaceDetailDto({
       ...place,
-      categories: place.placeCategories?.map((pc) => pc.category.name) || [],
+      categories: place.placeCategories?.map((pc) => pc.category.nameEn) || [],
       imageUrls: place.images?.map((i) => i.url) || [],
     });
   }
