@@ -52,4 +52,20 @@ export class FavoritesController {
   toggleEvent(@Req() req, @Param('id') eventId: string) {
     return this.favoritesService.toggleFavoriteEvent(req.user.id, +eventId);
   }
+
+  @Get('places/:id/is-saved')
+  @ApiOperation({ summary: 'Check if place is saved' })
+  @ApiResponse({ status: 200, description: 'Return saved status.' })
+  async isPlaceSaved(@Req() req, @Param('id') placeId: string) {
+    const isSaved = await this.favoritesService.isPlaceSaved(req.user.id, +placeId);
+    return { saved: isSaved };
+  }
+
+  @Get('events/:id/is-saved')
+  @ApiOperation({ summary: 'Check if event is saved' })
+  @ApiResponse({ status: 200, description: 'Return saved status.' })
+  async isEventSaved(@Req() req, @Param('id') eventId: string) {
+    const isSaved = await this.favoritesService.isEventSaved(req.user.id, +eventId);
+    return { saved: isSaved };
+  }
 }
