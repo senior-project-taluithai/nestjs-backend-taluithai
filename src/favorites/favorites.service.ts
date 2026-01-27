@@ -94,4 +94,17 @@ export class FavoritesService {
     await this.favEventsRepo.save(fav);
     return { message: 'Added to favorites', liked: true };
   }
+  async isPlaceSaved(userId: string, placeId: number): Promise<boolean> { 
+    const count = await this.favPlacesRepo.count({
+      where: { userId, placeId },
+    });
+    return count > 0;
+  }
+
+  async isEventSaved(userId: string, eventId: number): Promise<boolean> {
+    const count = await this.favEventsRepo.count({
+      where: { userId, eventId },
+    });
+    return count > 0;
+  }
 }
