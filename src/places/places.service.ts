@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { PlaceReview } from './entities/place-review.entity';
+import { PlaceFilterDto } from './dto/place-filter.dto';
+import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 
 @Injectable()
 export class PlacesService {
@@ -13,10 +15,65 @@ export class PlacesService {
     private reviewsRepository: Repository<PlaceReview>,
   ) {}
 
-  async findAll(): Promise<Place[]> {
-    return this.placesRepository.find({
-      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
-    });
+  async findAll(filter: PlaceFilterDto): Promise<PaginatedResultDto<Place>> {
+    const {
+      searchTerm,
+      regions,
+      provinces,
+      categoryId,
+      bestSeason,
+      minRating,
+      page = 1,
+      limit = 10,
+    } = filter;
+
+    const query = this.placesRepository.createQueryBuilder('place');
+
+    query
+      .leftJoinAndSelect('place.province', 'province')
+      .leftJoinAndSelect('place.images', 'images')
+      .leftJoinAndSelect('place.placeCategories', 'placeCategories')
+      .leftJoinAndSelect('placeCategories.category', 'category');
+
+    if (searchTerm) {
+      query.andWhere(
+        '(LOWER(place.name) LIKE LOWER(:searchTerm) OR LOWER(place.nameEn) LIKE LOWER(:searchTerm) OR LOWER(place.detail) LIKE LOWER(:searchTerm) OR LOWER(place.detailEn) LIKE LOWER(:searchTerm))',
+        { searchTerm: `%${searchTerm}%` },
+      );
+    }
+
+    if (regions && regions.length > 0) {
+      query.andWhere('province.regionName IN (:...regions)', { regions });
+    }
+
+    if (provinces && provinces.length > 0) {
+      query.andWhere('place.provinceId IN (:...provinces)', { provinces });
+    }
+
+    if (categoryId) {
+      query.andWhere('category.id = :categoryId', { categoryId });
+    }
+
+    if (bestSeason && bestSeason.length > 0) {
+      query.andWhere('place.bestSeason IN (:...bestSeason)', { bestSeason });
+    }
+
+    if (minRating) {
+      query.andWhere('place.rating >= :minRating', { minRating });
+    }
+
+    query
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [places, total] = await query.getManyAndCount();
+
+    return {
+      data: places,
+      page,
+      lastPage: Math.ceil(total / limit),
+      total,
+    };
   }
 
   async findOne(id: number): Promise<Place | null> {

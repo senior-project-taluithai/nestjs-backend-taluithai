@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Event } from './entities/event.entity';
 import { EventReview } from './entities/event-review.entity';
+import { EventFilterDto } from './dto/event-filter.dto';
+import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 
 @Injectable()
 export class EventsService {
@@ -13,10 +15,60 @@ export class EventsService {
     private reviewsRepository: Repository<EventReview>,
   ) {}
 
-  async findAll(): Promise<Event[]> {
-    return this.eventsRepository.find({
-      relations: ['province', 'eventCategories', 'eventCategories.category', 'images'],
-    });
+  async findAll(filter: EventFilterDto): Promise<PaginatedResultDto<Event>> {
+    const {
+      searchTerm,
+      regions,
+      provinces,
+      categoryId,
+      minRating,
+      page = 1,
+      limit = 10,
+    } = filter;
+
+    const query = this.eventsRepository.createQueryBuilder('event');
+
+    query
+      .leftJoinAndSelect('event.province', 'province')
+      .leftJoinAndSelect('event.images', 'images')
+      .leftJoinAndSelect('event.eventCategories', 'eventCategories')
+      .leftJoinAndSelect('eventCategories.category', 'category');
+
+    if (searchTerm) {
+      query.andWhere(
+        '(LOWER(event.name) LIKE LOWER(:searchTerm) OR LOWER(event.nameEn) LIKE LOWER(:searchTerm) OR LOWER(event.detail) LIKE LOWER(:searchTerm) OR LOWER(event.detailEn) LIKE LOWER(:searchTerm))',
+        { searchTerm: `%${searchTerm}%` },
+      );
+    }
+
+    if (regions && regions.length > 0) {
+      query.andWhere('province.regionName IN (:...regions)', { regions });
+    }
+
+    if (provinces && provinces.length > 0) {
+      query.andWhere('event.provinceId IN (:...provinces)', { provinces });
+    }
+
+    if (categoryId) {
+      query.andWhere('category.id = :categoryId', { categoryId });
+    }
+
+    if (minRating) {
+      query.andWhere('event.rating >= :minRating', { minRating });
+    }
+
+    query
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [events, total] = await query.getManyAndCount();
+
+    return {
+      data: events,
+      page,
+      lastPage: Math.ceil(total / limit),
+      total,
+    };
   }
 
   async findOne(id: number): Promise<Event | null> {
