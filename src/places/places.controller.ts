@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor, Query } from '@nestjs/common';
 import { PlacesService } from './places.service';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { PlaceDto, PlaceDetailDto } from './dto/place.dto';
+import { PlaceFilterDto } from './dto/place-filter.dto';
+import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 
 @ApiTags('Places')
 @Controller('places')
@@ -15,6 +17,28 @@ export class PlacesController {
   async getRecommended() {
     const places = await this.placesService.getRecommended();
     return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
+  }
+
+  @Post('explore')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Explore places with search and filter' })
+  @ApiResponse({ status: 200, description: 'Return filtered places with pagination.', type: PaginatedResultDto }) 
+  async explore(@Body() filter: PlaceFilterDto): Promise<PaginatedResultDto<PlaceDto>> {
+    const { data, page, lastPage, total } = await this.placesService.findAll(filter);
+    return {
+      data: data.map(
+        (place) =>
+          new PlaceDto({
+            ...place,
+            categories:
+              place.placeCategories?.map((pc) => pc.category.nameEn) || [],
+            imageUrls: place.images?.map((i) => i.url) || [],
+          }),
+      ),
+      page,
+      lastPage,
+      total,
+    };
   }
 
   @Get('popular')
@@ -35,21 +59,7 @@ export class PlacesController {
     return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
   }
 
-  @Get()
-  @UseInterceptors(ClassSerializerInterceptor)
-  @ApiOperation({ summary: 'Get all places' })
-  @ApiResponse({ status: 200, description: 'Return all places.', type: [PlaceDto] })
-  async findAll() {
-    const places = await this.placesService.findAll();
-    return places.map(
-      (place) =>
-        new PlaceDto({
-          ...place,
-          categories: place.placeCategories?.map((pc) => pc.category.nameEn) || [],
-          imageUrls: place.images?.map((i) => i.url) || [],
-        }),
-    );
-  }
+
 
   @Get(':id')
   @UseInterceptors(ClassSerializerInterceptor)

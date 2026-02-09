@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor, Query } from '@nestjs/common';
 import { EventsService } from './events.service';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { EventDto, EventDetailDto } from './dto/event.dto';
+import { EventFilterDto } from './dto/event-filter.dto';
+import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 
 @ApiTags('Events')
 @Controller('events')
@@ -17,6 +19,28 @@ export class EventsController {
     return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.nameEn) || [], imageUrls: e.images?.map(i => i.url) || [] }));
   }
 
+  @Post('explore')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Explore events with search and filter' })
+  @ApiResponse({ status: 200, description: 'Return filtered events with pagination.', type: PaginatedResultDto })
+  async explore(@Body() filter: EventFilterDto): Promise<PaginatedResultDto<EventDto>> {
+    const { data, page, lastPage, total } = await this.eventsService.findAll(filter);
+    return {
+      data: data.map(
+        (event) =>
+          new EventDto({
+            ...event,
+            categories:
+              event.eventCategories?.map((ec) => ec.category.nameEn) || [],
+            imageUrls: event.images?.map((i) => i.url) || [],
+          }),
+      ),
+      page,
+      lastPage,
+      total,
+    };
+  }
+
   @Get('upcoming')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get upcoming events' })
@@ -26,21 +50,7 @@ export class EventsController {
     return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.nameEn) || [], imageUrls: e.images?.map(i => i.url) || [] }));
   }
 
-  @Get()
-  @UseInterceptors(ClassSerializerInterceptor)
-  @ApiOperation({ summary: 'Get all events' })
-  @ApiResponse({ status: 200, description: 'Return all events.', type: [EventDto] })
-  async findAll() {
-    const events = await this.eventsService.findAll();
-    return events.map(
-      (event) =>
-        new EventDto({
-          ...event,
-          categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
-          imageUrls: event.images?.map((i) => i.url) || [],
-        }),
-    );
-  }
+
 
   @Get(':id')
   @UseInterceptors(ClassSerializerInterceptor)
