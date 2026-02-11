@@ -18,6 +18,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthGuard } from '@nestjs/passport';
 import { TripDto, TripDetailDto, ProvinceBasicDto } from './dto/trip.dto';
 import { CreateTripDto, UpdateTripDto } from './dto/create-trip.dto';
+import { FilterTripPlacesDto, FilterTripEventsDto } from './dto/filter-trip-items.dto';
 import { Trip } from './entities/trip.entity';
 
 @ApiTags('Trips')
@@ -119,25 +120,63 @@ export class TripsController {
 
   // ============ Places in Trip Provinces ============
 
-  @Get(':id/places')
+  @Post(':id/places')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get all places in trip provinces with search and filters' })
   @ApiResponse({ status: 200, description: 'Return places from trip provinces.' })
   async getPlacesInTripProvinces(
     @Req() req,
     @Param('id') id: string,
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '8',
-    @Query('search') search?: string,
-    @Query('category') category?: string,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    filterDto: FilterTripPlacesDto,
   ) {
     return this.tripsService.getPlacesInTripProvinces(
       +id,
       req.user.id,
+      filterDto.page,
+      filterDto.limit,
+      filterDto.search,
+      filterDto.categoryId,
+    );
+  }
+
+  @Post(':id/events')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get all events in trip provinces with search and filters, filtered by trip dates' })
+  @ApiResponse({ status: 200, description: 'Return events from trip provinces and dates.' })
+  async getEventsInTripProvinces(
+    @Req() req,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    filterDto: FilterTripEventsDto,
+  ) {
+    return this.tripsService.getEventsInTripProvinces(
+      +id,
+      req.user.id,
+      filterDto.page,
+      filterDto.limit,
+      filterDto.search,
+      filterDto.categoryId,
+    );
+  }
+
+  @Get(':id/saved')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get saved place/event in trip provinces' })
+  @ApiResponse({ status: 200, description: 'Return saved items from trip provinces.' })
+  async getSavedItemsForTrip(
+    @Req() req,
+    @Param('id') id: string,
+    @Query('type') type: 'place' | 'event',
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '8',
+  ) {
+    return this.tripsService.getSavedItemsForTrip(
+      +id,
+      req.user.id,
+      type,
       parseInt(page),
       parseInt(limit),
-      search,
-      category,
     );
   }
 

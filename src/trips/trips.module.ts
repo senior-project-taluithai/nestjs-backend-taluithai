@@ -6,12 +6,14 @@ import { Trip, TripDay } from './entities/trip.entity';
 import { Province } from '../provinces/entities/province.entity';
 import { PlacesModule } from '../places/places.module';
 import { EventsModule } from '../events/events.module';
+import { FavoritesModule } from '../favorites/favorites.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Trip, TripDay, Province]),
     PlacesModule,
     EventsModule,
+    FavoritesModule,
   ],
   controllers: [TripsController],
   providers: [TripsService],

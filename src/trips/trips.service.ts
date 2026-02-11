@@ -6,6 +6,7 @@ import { Province } from '../provinces/entities/province.entity';
 import { CreateTripDto, UpdateTripDto } from './dto/create-trip.dto';
 import { PlacesService } from '../places/places.service';
 import { EventsService } from '../events/events.service';
+import { FavoritesService } from '../favorites/favorites.service';
 import { CreateTripDayItemDto, UpdateTripDayItemDto, ReorderTripDayItemsDto } from './dto/trip-day-item.dto';
 
 @Injectable()
@@ -19,6 +20,7 @@ export class TripsService {
     private tripDaysRepository: Repository<TripDay>,
     private placesService: PlacesService,
     private eventsService: EventsService,
+    private favoritesService: FavoritesService,
   ) {}
 
   async findAll(userId: string): Promise<Trip[]> {
@@ -312,6 +314,68 @@ export class TripsService {
     });
     
     return result;
+  }
+
+  async getEventsInTripProvinces(
+    tripId: number,
+    userId: string,
+    page: number = 1,
+    limit: number = 8,
+    search?: string,
+    category?: string,
+  ) {
+    const trip = await this.findOne(tripId, userId);
+    if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    const provinceIds = trip.provinces.map((p) => p.id);
+    
+    // Get all events with filters
+    const result = await this.eventsService.findAll({
+      searchTerm: search,
+      provinces: provinceIds,
+      categoryId: category ? parseInt(category) : undefined,
+      page,
+      limit,
+      // Filter by trip dates to only show relevant events
+      startDate: trip.startDate.toISOString(),
+      endDate: trip.endDate.toISOString(),
+    });
+    return result;
+  }
+
+  async getSavedItemsForTrip(
+    tripId: number,
+    userId: string,
+    type: 'place' | 'event',
+    page: number = 1,
+    limit: number = 8,
+  ) {
+    const trip = await this.findOne(tripId, userId);
+    if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    const provinceIds = trip.provinces.map((p) => p.id);
+
+    if (type === 'place') {
+      return this.favoritesService.getFavoritePlacesInProvinces(
+        userId,
+        provinceIds,
+        { page, pageSize: limit }
+      );
+    } else if (type === 'event') {
+      return this.favoritesService.getFavoriteEventsInProvinces(
+        userId,
+        provinceIds,
+        { page, pageSize: limit },
+        trip.startDate,
+        trip.endDate
+      );
+    }
+
+    throw new BadRequestException('Invalid type');
   }
 
   // ============ Trip Day Item Management ============

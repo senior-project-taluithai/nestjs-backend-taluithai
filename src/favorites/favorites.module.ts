@@ -9,5 +9,6 @@ import { UserFavoriteEvent } from './entities/user-favorite-event.entity';
   imports: [TypeOrmModule.forFeature([UserFavoritePlace, UserFavoriteEvent])],
   controllers: [FavoritesController],
   providers: [FavoritesService],
+  exports: [FavoritesService],
 })
 export class FavoritesModule {}

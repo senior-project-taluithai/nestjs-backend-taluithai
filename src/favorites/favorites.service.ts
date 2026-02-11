@@ -19,11 +19,13 @@ export class FavoritesService {
 
   async getFavoritePlaces(userId: string, paginationDto: PaginationDto): Promise<PaginatedResultDto<PlaceDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
+    const safePage = page < 1 ? 1 : page;
+    const safePageSize = pageSize < 1 ? 10 : pageSize;
     const [favorites, total] = await this.favPlacesRepo.findAndCount({
       where: { userId },
       relations: ['place', 'place.province', 'place.placeCategories', 'place.placeCategories.category', 'place.images'],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      skip: (safePage - 1) * safePageSize,
+      take: safePageSize,
     });
 
     const data = favorites.map((fav) => {
@@ -38,18 +40,20 @@ export class FavoritesService {
     return {
       data,
       total,
-      page,
-      lastPage: Math.ceil(total / pageSize),
+      page: safePage,
+      lastPage: Math.ceil(total / safePageSize),
     };
   }
 
   async getFavoriteEvents(userId: string, paginationDto: PaginationDto): Promise<PaginatedResultDto<EventDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
+    const safePage = page < 1 ? 1 : page;
+    const safePageSize = pageSize < 1 ? 10 : pageSize;
     const [favorites, total] = await this.favEventsRepo.findAndCount({
       where: { userId },
       relations: ['event', 'event.province', 'event.eventCategories', 'event.eventCategories.category', 'event.images'],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      skip: (safePage - 1) * safePageSize,
+      take: safePageSize,
     });
 
     const data = favorites.map((fav) => {
@@ -64,8 +68,8 @@ export class FavoritesService {
     return {
       data,
       total,
-      page,
-      lastPage: Math.ceil(total / pageSize),
+      page: safePage,
+      lastPage: Math.ceil(total / safePageSize),
     };
   }
 
@@ -106,5 +110,99 @@ export class FavoritesService {
       where: { userId, eventId },
     });
     return count > 0;
+  }
+
+  async getFavoritePlacesInProvinces(
+    userId: string, 
+    provinceIds: number[], 
+    paginationDto: PaginationDto
+  ): Promise<PaginatedResultDto<PlaceDto>> {
+    const { page = 1, pageSize = 10 } = paginationDto;
+    const safePage = page < 1 ? 1 : page;
+    const safePageSize = pageSize < 1 ? 10 : pageSize;
+    const query = this.favPlacesRepo.createQueryBuilder('fav')
+      .leftJoinAndSelect('fav.place', 'place')
+      .leftJoinAndSelect('place.province', 'province')
+      .leftJoinAndSelect('place.placeCategories', 'placeCategories')
+      .leftJoinAndSelect('placeCategories.category', 'category')
+      .leftJoinAndSelect('place.images', 'images')
+      .where('fav.userId = :userId', { userId });
+
+    if (provinceIds.length > 0) {
+      query.andWhere('place.provinceId IN (:...provinceIds)', { provinceIds });
+    }
+
+    const [favorites, total] = await query
+      .skip((safePage - 1) * safePageSize)
+      .take(safePageSize)
+      .getManyAndCount();
+
+    const data = favorites.map((fav) => {
+      const place = fav.place;
+      return new PlaceDto({
+        ...place,
+        categories: place.placeCategories?.map((pc) => pc.category.nameEn) || [],
+        imageUrls: place.images?.map((i) => i.url) || [],
+      });
+    });
+
+    return {
+      data,
+      total,
+      page: safePage,
+      lastPage: Math.ceil(total / safePageSize),
+    };
+  }
+
+  async getFavoriteEventsInProvinces(
+    userId: string, 
+    provinceIds: number[], 
+    paginationDto: PaginationDto,
+    startDate?: Date,
+    endDate?: Date
+  ): Promise<PaginatedResultDto<EventDto>> {
+    const { page = 1, pageSize = 10 } = paginationDto;
+    const safePage = page < 1 ? 1 : page;
+    const safePageSize = pageSize < 1 ? 10 : pageSize;
+    const query = this.favEventsRepo.createQueryBuilder('fav')
+      .leftJoinAndSelect('fav.event', 'event')
+      .leftJoinAndSelect('event.province', 'province')
+      .leftJoinAndSelect('event.eventCategories', 'eventCategories')
+      .leftJoinAndSelect('eventCategories.category', 'category')
+      .leftJoinAndSelect('event.images', 'images')
+      .where('fav.userId = :userId', { userId });
+
+    if (provinceIds.length > 0) {
+      query.andWhere('event.provinceId IN (:...provinceIds)', { provinceIds });
+    }
+
+    if (startDate && endDate) {
+       // (EventStartDate <= FilterEndDate) AND (EventEndDate >= FilterStartDate)
+       query.andWhere(
+        '(event.startDate <= :endDate AND event.endDate >= :startDate)',
+        { startDate, endDate },
+      );
+    }
+
+    const [favorites, total] = await query
+      .skip((safePage - 1) * safePageSize)
+      .take(safePageSize)
+      .getManyAndCount();
+
+    const data = favorites.map((fav) => {
+      const event = fav.event;
+      return new EventDto({
+        ...event,
+        categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
+        imageUrls: event.images?.map((i) => i.url) || [],
+      });
+    });
+
+    return {
+      data,
+      total,
+      page: safePage,
+      lastPage: Math.ceil(total / safePageSize),
+    };
   }
 }
