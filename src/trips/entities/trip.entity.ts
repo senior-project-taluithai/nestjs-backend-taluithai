@@ -27,6 +27,9 @@ export interface TripItem {
   order: number;
   start_time?: string; // HH:mm
   end_time?: string; // HH:mm
+  // Enriched fields
+  place?: any; // strict definition would be Place but to avoid circular imports we use any or defined interface
+  event?: any;
 }
 
 @Entity('trips')
