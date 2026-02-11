@@ -2,6 +2,28 @@ import { Expose, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { TripStatus, TripItem } from '../entities/trip.entity';
 
+export class ProvinceBasicDto {
+  @Expose()
+  @ApiProperty({ example: 1 })
+  id: number;
+
+  @Expose()
+  @ApiProperty({ example: 'Bangkok' })
+  name_en: string;
+
+  @Expose()
+  @ApiProperty({ example: 'กรุงเทพมหานคร' })
+  name: string;
+
+  @Expose()
+  @ApiProperty({ example: 'https://picsum.photos/1000/600?random=3' })
+  image_url: string;
+
+  constructor(partial: Partial<ProvinceBasicDto>) {
+    Object.assign(this, partial);
+  }
+}
+
 export class TripDayDto {
   @Expose()
   @ApiProperty({ example: 1 })
@@ -58,6 +80,11 @@ export class TripDto {
   @Expose()
   @ApiProperty({ enum: TripStatus, example: TripStatus.DRAFT })
   status: TripStatus;
+
+  @Expose()
+  @Type(() => ProvinceBasicDto)
+  @ApiProperty({ type: [ProvinceBasicDto] })
+  provinces: ProvinceBasicDto[];
 
   constructor(partial: Partial<TripDto>) {
     Object.assign(this, partial);

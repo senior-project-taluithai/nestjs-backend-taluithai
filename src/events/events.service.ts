@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Event } from './entities/event.entity';
 import { EventReview } from './entities/event-review.entity';
 import { EventFilterDto } from './dto/event-filter.dto';
@@ -75,6 +75,14 @@ export class EventsService {
     return this.eventsRepository.findOne({
       where: { id },
       relations: ['province', 'eventCategories', 'eventCategories.category', 'reviews', 'reviews.user', 'images'],
+    });
+  }
+
+  async findByIds(ids: number[]): Promise<Event[]> {
+    if (!ids || ids.length === 0) return [];
+    return this.eventsRepository.find({
+      where: { id: In(ids) },
+      relations: ['province', 'eventCategories', 'eventCategories.category', 'images'],
     });
   }
 

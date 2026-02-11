@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { PlaceReview } from './entities/place-review.entity';
 import { PlaceFilterDto } from './dto/place-filter.dto';
@@ -80,6 +80,14 @@ export class PlacesService {
     return this.placesRepository.findOne({
       where: { id },
       relations: ['province', 'placeCategories', 'placeCategories.category', 'reviews', 'reviews.user', 'images'],
+    });
+  }
+
+  async findByIds(ids: number[]): Promise<Place[]> {
+    if (!ids || ids.length === 0) return [];
+    return this.placesRepository.find({
+      where: { id: In(ids) },
+      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
     });
   }
 
