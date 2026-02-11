@@ -128,6 +128,7 @@ export class TripsService {
     if (updateTripDto.status) existing.status = updateTripDto.status;
 
     // Update dates and regenerate trip days if dates changed
+    // Update dates and regenerate trip days if dates changed
     if (updateTripDto.start_date || updateTripDto.end_date) {
       const newStartDate = updateTripDto.start_date
         ? new Date(updateTripDto.start_date)
@@ -139,12 +140,49 @@ export class TripsService {
       existing.startDate = newStartDate;
       existing.endDate = newEndDate;
 
-      // Regenerate trip days (this will replace existing days)
-      // In a real app, you might want to preserve existing items
-      existing.tripDays = this.generateTripDays(
-        newStartDate.toISOString(),
-        newEndDate.toISOString(),
-      );
+      // Smart update of trip days
+      const daysDiff = Math.ceil((newEndDate.getTime() - newStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      
+      // Ensure existing days are sorted
+      existing.tripDays.sort((a, b) => a.dayNumber - b.dayNumber);
+
+      // Create a pool of existing days
+      const currentDays = [...existing.tripDays];
+      const newTripDays: TripDay[] = [];
+
+      let currentDate = new Date(newStartDate);
+
+      for (let i = 0; i < daysDiff; i++) {
+        let day: TripDay;
+
+        if (i < currentDays.length) {
+          // Reuse existing day
+          day = currentDays[i];
+          day.date = new Date(currentDate); // Update date
+        } else {
+          // Create new day
+          day = new TripDay();
+          day.dayNumber = i + 1;
+          day.date = new Date(currentDate);
+          day.items = [];
+        }
+        
+        // Ensure day number is correct (in case we are reusing but shifted?? mostly just for safety)
+        day.dayNumber = i + 1; 
+        newTripDays.push(day);
+
+        // Advance date
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Handle removal of excess days manually since orphanRemoval is not working well with TypeScript here
+      const daysToRemove = currentDays.slice(daysDiff);
+      if (daysToRemove.length > 0) {
+        await this.tripDaysRepository.remove(daysToRemove);
+      }
+
+      // Replace the array. 
+      existing.tripDays = newTripDays;
     }
 
     return this.tripsRepository.save(existing);
