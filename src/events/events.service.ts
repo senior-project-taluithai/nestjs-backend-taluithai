@@ -26,6 +26,9 @@ export class EventsService {
       limit = 10,
     } = filter;
 
+    const safePage = page < 1 ? 1 : page;
+    const safeLimit = limit < 1 ? 10 : limit;
+
     const query = this.eventsRepository.createQueryBuilder('event');
 
     query
@@ -57,16 +60,32 @@ export class EventsService {
       query.andWhere('event.rating >= :minRating', { minRating });
     }
 
+    if (filter.startDate && filter.endDate) {
+      // Check for overlapping dates
+      // (EventStartDate <= FilterEndDate) AND (EventEndDate >= FilterStartDate)
+      query.andWhere(
+        '(event.startDate <= :endDate AND event.endDate >= :startDate)',
+        { 
+          startDate: new Date(filter.startDate), 
+          endDate: new Date(filter.endDate) 
+        },
+      );
+    }
+
     query
-      .skip((page - 1) * limit)
-      .take(limit);
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit);
+
+    // console.log('Event Filter:', JSON.stringify(filter, null, 2));
+    // console.log('Generated SQL:', query.getSql());
+    // console.log('Parameters:', query.getParameters());
 
     const [events, total] = await query.getManyAndCount();
 
     return {
       data: events,
-      page,
-      lastPage: Math.ceil(total / limit),
+      page: safePage,
+      lastPage: Math.ceil(total / safeLimit),
       total,
     };
   }

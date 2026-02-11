@@ -12,6 +12,8 @@ import { EventImage } from './event-image.entity';
 import { EventCategory } from './event-category.entity';
 
 
+import { Expose } from 'class-transformer';
+
 @Entity('events')
 export class Event {
   @PrimaryGeneratedColumn()
@@ -21,21 +23,26 @@ export class Event {
   name: string;
 
   @Column({ name: 'name_en' })
+  @Expose({ name: 'name_en' })
   nameEn: string;
 
   @Column()
   detail: string;
 
   @Column({ name: 'detail_en', nullable: true })
+  @Expose({ name: 'detail_en' })
   detailEn: string;
 
   @Column({ name: 'start_date', type: 'timestamp' })
+  @Expose({ name: 'start_date' })
   startDate: Date;
 
   @Column({ name: 'end_date', type: 'timestamp' })
+  @Expose({ name: 'end_date' })
   endDate: Date;
 
   @Column({ name: 'province_id' })
+  @Expose({ name: 'province_id' })
   provinceId: number;
 
   @ManyToOne(() => Province)
@@ -49,21 +56,25 @@ export class Event {
   longitude: number;
 
   @Column({ name: 'is_recurring', default: false })
+  @Expose({ name: 'is_recurring' })
   isRecurring: boolean;
 
   @Column({ name: 'is_highlight', default: false })
+  @Expose({ name: 'is_highlight' })
   isHighlight: boolean;
 
   @Column({ type: 'float', default: 0 })
   rating: number;
 
   @Column({ name: 'thumbnail_url' })
+  @Expose({ name: 'thumbnail_url' })
   thumbnailUrl: string;
 
   @OneToMany(() => EventImage, (image) => image.event, { cascade: true })
   images: EventImage[];
 
   @OneToMany(() => EventCategory, (eventCategory) => eventCategory.event, { cascade: true })
+  @Expose({ name: 'event_categories' })
   eventCategories: EventCategory[];
 
   @OneToMany(() => EventReview, (review) => review.event)

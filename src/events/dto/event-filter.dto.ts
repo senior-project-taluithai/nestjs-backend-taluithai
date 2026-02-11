@@ -66,4 +66,14 @@ export class EventFilterDto {
   @Min(1)
   @Type(() => Number)
   limit?: number = 10;
+
+  @ApiPropertyOptional({ description: 'Filter by start date (ISO string)' })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by end date (ISO string)' })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
 }
