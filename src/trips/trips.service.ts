@@ -4,6 +4,7 @@ import { Repository, In, Like } from 'typeorm';
 import { Trip, TripDay, TripItem } from './entities/trip.entity';
 import { Province } from '../provinces/entities/province.entity';
 import { CreateTripDto, UpdateTripDto } from './dto/create-trip.dto';
+import { BestSeasonEnum } from '../places/entities/place.entity';
 import { PlacesService } from '../places/places.service';
 import { EventsService } from '../events/events.service';
 import { FavoritesService } from '../favorites/favorites.service';
@@ -296,25 +297,41 @@ export class TripsService {
     limit: number = 8,
     search?: string,
     category?: string,
+    provinceIds?: number[],
+    minRating?: number,
+    bestSeason?: string[],
   ) {
     const trip = await this.findOne(tripId, userId);
     if (!trip) {
       throw new NotFoundException('Trip not found');
     }
 
-    const provinceIds = trip.provinces.map((p) => p.id);
-    
-    // Get all places with filters
-    const result = await this.placesService.findAll({
-      searchTerm: search,
-      provinces: provinceIds,
-      categoryId: category ? parseInt(category) : undefined,
+    let targetProvinceIds = trip.provinces.map((p) => p.id);
+
+    // Filter by specific provinces if provided, but must be within trip provinces
+    if (provinceIds && provinceIds.length > 0) {
+        targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
+    }
+
+    if (targetProvinceIds.length === 0) {
+         return {
+            data: [],
+            page,
+            lastPage: 1,
+            total: 0
+         }
+    }
+
+    return this.placesService.findAll({
       page,
       limit,
+      searchTerm: search,
+      categoryId: category ? parseInt(category) : undefined,
+      provinces: targetProvinceIds,
+      minRating,
+      bestSeason: bestSeason as BestSeasonEnum[]
     });
-    
-    return result;
-  }
+  }  
 
   async getEventsInTripProvinces(
     tripId: number,
@@ -323,26 +340,40 @@ export class TripsService {
     limit: number = 8,
     search?: string,
     category?: string,
+    provinceIds?: number[],
+    minRating?: number,
   ) {
     const trip = await this.findOne(tripId, userId);
     if (!trip) {
       throw new NotFoundException('Trip not found');
     }
 
-    const provinceIds = trip.provinces.map((p) => p.id);
-    
-    // Get all events with filters
-    const result = await this.eventsService.findAll({
-      searchTerm: search,
-      provinces: provinceIds,
-      categoryId: category ? parseInt(category) : undefined,
+    let targetProvinceIds = trip.provinces.map((p) => p.id);
+
+    // Filter by specific provinces if provided, but must be within trip provinces
+    if (provinceIds && provinceIds.length > 0) {
+        targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
+    }
+
+    if (targetProvinceIds.length === 0) {
+         return {
+            data: [],
+            page,
+            lastPage: 1,
+            total: 0
+         }
+    }
+
+    return this.eventsService.findAll({
       page,
       limit,
-      // Filter by trip dates to only show relevant events
+      searchTerm: search,
+      categoryId: category ? parseInt(category) : undefined,
+      provinces: targetProvinceIds,
       startDate: trip.startDate.toISOString(),
       endDate: trip.endDate.toISOString(),
+      minRating,
     });
-    return result;
   }
 
   async getSavedItemsForTrip(
