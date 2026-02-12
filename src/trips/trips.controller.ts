@@ -137,6 +137,9 @@ export class TripsController {
       filterDto.limit,
       filterDto.search,
       filterDto.categoryId,
+      filterDto.provinceIds,
+      filterDto.minRating,
+      filterDto.bestSeason,
     );
   }
 
@@ -157,6 +160,8 @@ export class TripsController {
       filterDto.limit,
       filterDto.search,
       filterDto.categoryId,
+      filterDto.provinceIds,
+      filterDto.minRating,
     );
   }
 

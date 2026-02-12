@@ -27,6 +27,27 @@ export class FilterTripPlacesDto {
   @IsNumber()
   @Min(1)
   limit?: number = 8;
+
+  @ApiPropertyOptional({ type: [Number], name: 'province_ids' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
+  @Expose({ name: 'province_ids' })
+  provinceIds?: number[];
+
+  @ApiPropertyOptional({ name: 'min_rating' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Expose({ name: 'min_rating' })
+  minRating?: number;
+
+  @ApiPropertyOptional({ name: 'best_season' })
+  @IsOptional()
+  @IsString({ each: true })
+  @Expose({ name: 'best_season' })
+  bestSeason?: string[];
 }
 
 export class FilterTripEventsDto {
@@ -54,4 +75,19 @@ export class FilterTripEventsDto {
   @IsNumber()
   @Min(1)
   limit?: number = 8;
+
+  @ApiPropertyOptional({ type: [Number], name: 'province_ids' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
+  @Expose({ name: 'province_ids' })
+  provinceIds?: number[];
+
+  @ApiPropertyOptional({ name: 'min_rating' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Expose({ name: 'min_rating' })
+  minRating?: number;
 }
