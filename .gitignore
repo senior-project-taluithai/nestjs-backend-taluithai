@@ -22,3 +22,8 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+
+# GCP Service Account keys
+*.json.key
+vertex-sa-key.json
+*-sa-key.json

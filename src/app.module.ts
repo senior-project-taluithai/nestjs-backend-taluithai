@@ -13,6 +13,10 @@ import { PlacesModule } from './places/places.module';
 import { EventsModule } from './events/events.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { TripsModule } from './trips/trips.module';
+import { MongoModule } from './mongo/mongo.module';
+import { EmbeddingModule } from './embedding/embedding.module';
+import { ToolsModule } from './tools/tools.module';
+import { AgentModule } from './agent/agent.module';
 
 @Module({
   imports: [
@@ -43,6 +47,10 @@ import { TripsModule } from './trips/trips.module';
     EventsModule,
     FavoritesModule,
     TripsModule,
+    MongoModule,
+    EmbeddingModule,
+    ToolsModule,
+    AgentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

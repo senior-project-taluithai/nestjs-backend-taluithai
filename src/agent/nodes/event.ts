@@ -1,0 +1,72 @@
+import { ChatOpenAI } from '@langchain/openai';
+import {
+  BaseMessage,
+  SystemMessage,
+  ToolMessage,
+} from '@langchain/core/messages';
+import { TravelAgentStateType } from '../state';
+import { StructuredTool } from '@langchain/core/tools';
+
+const EVENT_PROMPT = `You are the Event Agent of TaluiThai AI.
+Your job is to find festivals, cultural events, and activities in Thailand.
+
+## Instructions
+1. Use searchEvents to find events matching the user's destination and dates.
+2. Consider both the month/day relevance (year may differ in data).
+3. Suggest incorporating interesting events into the itinerary.
+
+## Event Categories
+- Cultural: ประเพณี, แห่เทียน, ลอยกระทง
+- Religious: วันวิสาขบูชา, งานทำบุญ
+- Food: งานอาหาร, ตลาดนัด
+- Music: คอนเสิร์ต, เทศกาลดนตรี
+- Sports: งานวิ่ง, แข่งเรือ
+- Seasonal: งานฤดูหนาว, งานดอกไม้
+
+## Output
+- List relevant events with dates, location, and description.
+- Explain why each event is worth attending.
+- Respond in the same language as the user.`;
+
+export function createEventNode(model: ChatOpenAI, tools: StructuredTool[]) {
+  const modelWithTools = model.bindTools(tools);
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
+
+  return async (state: TravelAgentStateType) => {
+    const humanMessages = state.messages.filter(
+      (m) => m._getType() === 'human',
+    );
+    const localMessages: BaseMessage[] = [
+      new SystemMessage(EVENT_PROMPT),
+      ...humanMessages,
+    ];
+
+    const MAX_TOOL_ROUNDS = 4;
+    let response = await modelWithTools.invoke(localMessages);
+
+    for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
+      if (!response.tool_calls || response.tool_calls.length === 0) break;
+
+      localMessages.push(response);
+      for (const tc of response.tool_calls) {
+        const tool = toolMap.get(tc.name);
+        if (tool) {
+          const result = await tool.invoke(tc.args);
+          localMessages.push(
+            new ToolMessage({
+              content:
+                typeof result === 'string' ? result : JSON.stringify(result),
+              tool_call_id: tc.id || tc.name,
+            }),
+          );
+        }
+      }
+      response = await modelWithTools.invoke(localMessages);
+    }
+
+    return {
+      messages: [response],
+      nextAgent: 'supervisor',
+    };
+  };
+}
