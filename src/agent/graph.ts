@@ -7,7 +7,7 @@ import {
   MemorySaver,
 } from '@langchain/langgraph';
 import { SystemMessage } from '@langchain/core/messages';
-import { createSubAgentTools } from './sub-agents';
+import { createSubAgentTools, ThumbnailLookupFn } from './sub-agents';
 
 /**
  * Supervisor system prompt.
@@ -78,6 +78,7 @@ CRITICAL: Each section must be COMPLETELY SEPARATE. Never mix event/festival tex
 export function buildTravelAgentGraph(
   tools: StructuredTool[],
   modelName = 'google/gemini-2.0-flash-001',
+  lookupThumbnails?: ThumbnailLookupFn,
 ) {
   const model = new ChatOpenAI({
     modelName,
@@ -89,7 +90,7 @@ export function buildTravelAgentGraph(
     apiKey: process.env.OPENROUTER_API_KEY,
   });
 
-  const subAgentTools = createSubAgentTools(model, tools);
+  const subAgentTools = createSubAgentTools(model, tools, lookupThumbnails);
 
   // First call: force tool usage so the agent doesn't answer from memory
   const modelForceTools = model.bindTools(subAgentTools, {

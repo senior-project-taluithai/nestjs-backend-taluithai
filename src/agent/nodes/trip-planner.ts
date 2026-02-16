@@ -30,6 +30,11 @@ After gathering places, create the itinerary. For each place you MUST include:
 - startTime, endTime
 - category, rating, thumbnail_url
 
+## CRITICAL: IMAGES
+- thumbnail_url MUST come ONLY from the search tool results (database).
+- NEVER generate/guess image URLs.
+- If no thumbnail is present in the tool result, set thumbnail_url to an empty string.
+
 Respond in the SAME LANGUAGE the user uses.
 
 ## CRITICAL

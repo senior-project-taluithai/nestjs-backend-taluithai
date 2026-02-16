@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ToolsService } from '../tools/tools.service';
+import { PlacesService } from '../places/places.service';
 import { createSearchTools } from './tools/search.tools';
 import { buildTravelAgentGraph } from './graph';
 import { HumanMessage } from '@langchain/core/messages';
@@ -20,7 +21,10 @@ export class AgentService implements OnModuleInit {
   private graph: ReturnType<typeof buildTravelAgentGraph> | null = null;
   private threads = new Map<string, ThreadInfo>();
 
-  constructor(private readonly toolsService: ToolsService) {}
+  constructor(
+    private readonly toolsService: ToolsService,
+    private readonly placesService: PlacesService,
+  ) {}
 
   onModuleInit() {
     // Enable LangSmith tracing only when API key and workspace are configured
@@ -33,9 +37,21 @@ export class AgentService implements OnModuleInit {
     process.env.LANGCHAIN_PROJECT =
       process.env.LANGSMITH_PROJECT || 'taluithai-agent';
 
+    // Create a thumbnail lookup function that fetches real URLs from Postgres
+    const lookupThumbnails = async (
+      pgPlaceIds: number[],
+    ): Promise<Map<number, string>> => {
+      const places = await this.placesService.findByIds(pgPlaceIds);
+      const map = new Map<number, string>();
+      for (const p of places) {
+        map.set(p.id, p.thumbnailUrl || '');
+      }
+      return map;
+    };
+
     this.logger.log('Initializing travel agent graph...');
     const tools = createSearchTools(this.toolsService);
-    this.graph = buildTravelAgentGraph(tools);
+    this.graph = buildTravelAgentGraph(tools, undefined, lookupThumbnails);
     this.logger.log(
       `Travel agent graph compiled successfully (LangSmith tracing: ${process.env.LANGCHAIN_TRACING_V2 === 'true' && !!process.env.LANGCHAIN_API_KEY ? 'ON' : 'OFF'})`,
     );

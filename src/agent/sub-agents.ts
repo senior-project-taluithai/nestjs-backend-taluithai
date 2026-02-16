@@ -119,6 +119,12 @@ When modifying an existing trip:
 - Do NOT invent places, coordinates, or IDs. If you don't have enough places, search again.
 - If a search returns no results, try a different query.
 
+## CRITICAL: IMAGES
+- thumbnail_url MUST come ONLY from the database tool results (e.g. thumbnail/thumbnail_url fields returned by search tools).
+- NEVER generate or guess image URLs.
+- NEVER use webSearch results as an image source.
+- If a place has no thumbnail from the database, set thumbnail_url to an empty string.
+
 ## CRITICAL OUTPUT FORMAT
 After gathering places from tools, you MUST output the itinerary as a JSON code block.
 Respond in the SAME LANGUAGE the user uses for the "name" field and any text.
@@ -142,7 +148,7 @@ Your final response MUST contain this JSON code block:
           "endTime": "10:00",
           "category": "temple",
           "rating": 4.5,
-          "thumbnail_url": "https://..."
+          "thumbnail_url": ""
         }
       ]
     }
@@ -216,12 +222,102 @@ List events with dates, location, description, and why worth attending.
 Respond in the same language as the user.`;
 
 // ============================================================================
+// Helpers: sanitise AI-generated thumbnail URLs
+// ============================================================================
+
+export type ThumbnailLookupFn = (
+  pgPlaceIds: number[],
+) => Promise<Map<number, string>>;
+
+const ALLOWED_THUMBNAIL_HOSTS = new Set([
+  'lh3.googleusercontent.com',
+  'streetviewpixels-pa.googleapis.com',
+]);
+
+function isAllowedThumbnailUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && ALLOWED_THUMBNAIL_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse the JSON code block from the LLM response, replace every
+ * thumbnail_url with the real value from Postgres, then splice the
+ * corrected JSON back into the text.
+ */
+async function fixThumbnailsInResponse(
+  text: string,
+  lookupThumbnails: ThumbnailLookupFn,
+): Promise<string> {
+  const jsonBlockRegex = /```(?:json)?\s*\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  let result = text;
+
+  while ((match = jsonBlockRegex.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      const days: Array<{ items?: Array<Record<string, unknown>> }> =
+        parsed?.days ?? [];
+      if (!Array.isArray(days) || days.length === 0) continue;
+
+      // Collect all pg_place_ids
+      const pgIds: number[] = [];
+      for (const day of days) {
+        for (const item of day.items ?? []) {
+          if (typeof item.pg_place_id === 'number') {
+            pgIds.push(item.pg_place_id);
+          }
+        }
+      }
+
+      if (pgIds.length === 0) continue;
+
+      const thumbMap = await lookupThumbnails(pgIds);
+
+      // Replace thumbnail_url with real DB value
+      for (const day of days) {
+        for (const item of day.items ?? []) {
+          const pid = item.pg_place_id as number | undefined;
+          if (pid && thumbMap.has(pid)) {
+            const realUrl = thumbMap.get(pid)!;
+            item.thumbnail_url =
+              realUrl && isAllowedThumbnailUrl(realUrl) ? realUrl : '';
+          } else {
+            // No DB match — strip any hallucinated URL
+            const current = item.thumbnail_url;
+            if (
+              typeof current === 'string' &&
+              current !== '' &&
+              !isAllowedThumbnailUrl(current)
+            ) {
+              item.thumbnail_url = '';
+            }
+          }
+        }
+      }
+
+      // Splice corrected JSON back
+      const correctedJson = JSON.stringify(parsed, null, 2);
+      const fullBlock = '```json\n' + correctedJson + '\n```';
+      result = result.replace(match[0], fullBlock);
+    } catch {
+      // not valid JSON, skip
+    }
+  }
+  return result;
+}
+
+// ============================================================================
 // Create sub-agent tools (following LangChain supervisor pattern)
 // ============================================================================
 
 export function createSubAgentTools(
   model: ChatOpenAI,
   lowLevelTools: StructuredTool[],
+  lookupThumbnails?: ThumbnailLookupFn,
 ): DynamicStructuredTool[] {
   const toolMap = new Map(lowLevelTools.map((t) => [t.name, t]));
   const pick = (...names: string[]) =>
@@ -253,8 +349,8 @@ export function createSubAgentTools(
       description:
         'Create a detailed day-by-day travel itinerary. Use when user wants to plan a trip or organize a multi-day visit.\nInput: Natural language request.',
       schema: z.object({ request: z.string() }),
-      func: async ({ request }) =>
-        runReactLoop(
+      func: async ({ request }) => {
+        const raw = await runReactLoop(
           model,
           pick(
             'searchPlacesSemantic',
@@ -265,7 +361,13 @@ export function createSubAgentTools(
           TRIP_PLANNER_PROMPT,
           request,
           12,
-        ),
+        );
+        // Post-process: replace AI-generated thumbnail URLs with real DB values
+        if (lookupThumbnails) {
+          return fixThumbnailsInResponse(raw, lookupThumbnails);
+        }
+        return raw;
+      },
     }),
 
     new DynamicStructuredTool({
