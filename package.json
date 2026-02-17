@@ -20,7 +20,6 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@google-cloud/aiplatform": "^6.4.0",
     "@langchain/community": "^1.1.15",
     "@langchain/core": "^1.1.24",
     "@langchain/google-genai": "^2.1.18",
@@ -40,7 +39,6 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "cookie-parser": "^1.4.7",
-    "google-auth-library": "^10.5.0",
     "langchain": "^1.2.24",
     "langsmith": "^0.5.4",
     "mongodb": "^7.1.0",

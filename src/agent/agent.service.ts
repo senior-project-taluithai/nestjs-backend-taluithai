@@ -27,9 +27,8 @@ export class AgentService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // Enable LangSmith tracing only when API key and workspace are configured
-    const hasLangSmith =
-      !!process.env.LANGSMITH_API_KEY && !!process.env.LANGSMITH_WORKSPACE_ID;
+    // Enable LangSmith tracing when API key is configured
+    const hasLangSmith = !!process.env.LANGSMITH_API_KEY;
     const tracingEnabled = hasLangSmith ? 'true' : 'false';
     process.env.LANGCHAIN_TRACING_V2 = tracingEnabled;
     process.env.LANGSMITH_TRACING = tracingEnabled;
