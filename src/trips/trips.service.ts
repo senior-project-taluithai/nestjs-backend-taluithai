@@ -427,16 +427,17 @@ export class TripsService {
       throw new NotFoundException(`Day ${dayNumber} not found`);
     }
 
-    // Verify the item exists
-    if (createItemDto.item_type === 'place') {
+    // Verify the item exists (soft check — warn but don't block)
+    if (createItemDto.item_type === 'place' && createItemDto.item_id) {
       const place = await this.placesService.findOne(createItemDto.item_id);
       if (!place) {
-        throw new NotFoundException('Place not found');
+        // Place may come from Qdrant/MongoDB but not exist in Postgres yet — allow anyway
+        console.warn(`Place ${createItemDto.item_id} not found in Postgres, adding item anyway`);
       }
-    } else if (createItemDto.item_type === 'event') {
+    } else if (createItemDto.item_type === 'event' && createItemDto.item_id) {
       const event = await this.eventsService.findOne(createItemDto.item_id);
       if (!event) {
-        throw new NotFoundException('Event not found');
+        console.warn(`Event ${createItemDto.item_id} not found in Postgres, adding item anyway`);
       }
     }
 

@@ -1,79 +1,30 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { StructuredTool } from '@langchain/core/tools';
-import { ToolNode, toolsCondition } from '@langchain/langgraph/prebuilt';
-import {
-  StateGraph,
-  MessagesAnnotation,
-  MemorySaver,
-} from '@langchain/langgraph';
-import { SystemMessage } from '@langchain/core/messages';
-import { createSubAgentTools, ThumbnailLookupFn } from './sub-agents';
+import { StateGraph, MemorySaver } from '@langchain/langgraph';
+import { TravelAgentState, ThumbnailLookupFn } from './state';
+import { createSupervisorNode } from './nodes/supervisor';
+import { createRecommendNode } from './nodes/recommend';
+import { createTripPlannerNode } from './nodes/trip-planner';
+import { createBudgetNode } from './nodes/budget';
+import { createRouteNode } from './nodes/route';
+import { createEventNode } from './nodes/event';
+
+// Re-export so existing imports (e.g. sub-agents.ts) still resolve
+export type { ThumbnailLookupFn } from './state';
+
+const MAX_SUPERVISOR_ROUNDS = 5;
 
 /**
- * Supervisor system prompt.
- */
-const SUPERVISOR_PROMPT = `You are "TaluiThai AI" — a helpful Thailand travel assistant.
-You coordinate specialist tools to help users plan trips, find places, estimate budgets, and more.
-
-## Available tools
-- recommend_places: Find and suggest places to visit
-- plan_trip: Create detailed day-by-day itineraries (returns JSON for map display)
-- estimate_budget: Estimate trip costs with budget table
-- optimize_route: Calculate routes, transport options, and travel tips
-- find_events: Find festivals and events happening nearby
-
-## Workflow for general place/event INFO questions
-When a user asks about a specific place or event (e.g. "ทะเลแหวกคืออะไร", "วัดพระแก้วมีอะไรบ้าง", "งานลอยกระทงจัดที่ไหน"):
-- Call ONLY recommend_places — it will search our database AND use webSearch to get comprehensive info
-- Optionally call find_events if the question is about events/festivals
-- Do NOT call plan_trip or estimate_budget — this is NOT a trip planning request
-- Use the combined results to answer with accurate, detailed information
-
-## Workflow for NEW trip planning requests
-When a user asks to plan a NEW trip (e.g. "วางแผนทริป", "จัดทริป", "plan trip"):
-- You MUST call ALL of these tools in parallel:
-- plan_trip: to generate the itinerary with JSON data
-- estimate_budget: with the destination and number of days
-- find_events: with the destination to find nearby events/festivals
-
-## Workflow for trip MODIFICATION requests
-When the user's message contains [CURRENT_TRIP] with existing trip JSON + [USER_REQUEST] with a modification:
-- Call plan_trip with the FULL context: include both the current trip JSON and the user's modification request
-- The plan_trip tool will modify the existing trip and return updated JSON
-- Examples of modifications: swap a place, add places, remove places, change days, reorder
-- You may also call estimate_budget or find_events if the modification affects budget or events
-
-## Response format
-After receiving all tool results, compose your response in this order:
-1. FIRST: Include the ENTIRE JSON code block from plan_trip verbatim (wrapped in \`\`\`json ... \`\`\`). The frontend parses this to display pins on the map. Do NOT rewrite the JSON.
-2. Brief trip summary: describe each day concisely, mentioning ONLY the places from the plan_trip JSON
-3. Budget section: a CLEAN markdown table with ONLY budget data. Example:
-
-| หมวด | ต่อวัน | รวม |
-| --- | --- | --- |
-| ที่พัก | 700 | 1,400 |
-| อาหาร | 500 | 1,000 |
-| รวม | 1,200 | 2,400 |
-
-4. Transport tips: how to get around (short paragraph, NOT inside the table)
-5. Events: festivals or events as a bullet list (NEVER inside the budget table)
-
-CRITICAL: Each section must be COMPLETELY SEPARATE. Never mix event/festival text into the budget table rows.
-
-## Rules
-1. Respond in the SAME LANGUAGE the user uses (Thai or English).
-2. For greetings or simple questions, respond directly without calling tools.
-3. For travel requests, ALWAYS use the tools — do NOT answer from your own knowledge.
-4. CRITICAL: Always pass through JSON code blocks from plan_trip exactly as received.
-5. CRITICAL: Do NOT mention any places that are not in the plan_trip JSON result. Only reference places that came from the tools.
-6. If the user doesn't specify a budget, provide a range table (Budget/Moderate/Luxury).
-7. If the user doesn't specify origin, assume they're already in the area and recommend local transport.`;
-
-/**
- * Build the travel agent graph using a custom ReAct loop.
+ * Build the travel-agent graph with a multi-node supervisor pattern.
  *
- * Uses tool_choice='required' on the first LLM call to guarantee tools are invoked.
- * Subsequent calls use tool_choice='auto' so the agent can finish with text.
+ * Topology (visible in LangGraph Studio):
+ *
+ *   __start__ → supervisor ⇄ recommend_agent
+ *                           ⇄ trip_planner
+ *                           ⇄ budget_agent
+ *                           ⇄ route_agent
+ *                           ⇄ event_agent
+ *                           → __end__
  */
 export function buildTravelAgentGraph(
   tools: StructuredTool[],
@@ -90,72 +41,82 @@ export function buildTravelAgentGraph(
     apiKey: process.env.OPENROUTER_API_KEY,
   });
 
-  const subAgentTools = createSubAgentTools(model, tools, lookupThumbnails);
+  // Helper to pick specific tools by name
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
+  const pick = (...names: string[]) =>
+    names.map((n) => toolMap.get(n)).filter(Boolean) as StructuredTool[];
 
-  // First call: force tool usage so the agent doesn't answer from memory
-  const modelForceTools = model.bindTools(subAgentTools, {
-    tool_choice: 'required',
-  });
+  // ── Create nodes ──────────────────────────────────────────────────────
 
-  // Subsequent calls: auto — agent can call more tools or generate final text
-  const modelAutoTools = model.bindTools(subAgentTools);
+  const supervisorNode = createSupervisorNode(model, tools);
 
-  const systemMsg = new SystemMessage(SUPERVISOR_PROMPT);
+  const recommendNode = createRecommendNode(
+    model,
+    pick(
+      'searchPlacesSemantic',
+      'searchPlacesByKeyword',
+      'findNearbyPlaces',
+      'webSearch',
+    ),
+  );
 
-  // Keywords that indicate a travel request (should use tools)
-  const travelKeywords =
-    /CURRENT_TRIP|เที่ยว|ทริป|วางแผน|แนะนำ|สถานที่|วัด|ทะเล|เกาะ|ภูเขา|งบ|budget|plan|trip|travel|recommend|temple|beach|hotel|ที่พัก|ร้านอาหาร|เทศกาล|event|เส้นทาง|route|จังหวัด|กรุงเทพ|เชียงใหม่|เชียงราย|ภูเก็ต|กระบี่|พัทยา|หัวหิน|เปลี่ยน|เพิ่ม|ลบ|ลด|ย้าย|สลับ|swap|add|remove|change|คืออะไร|มีอะไร|อยู่ที่ไหน|ข้อมูล|เล่าให้ฟัง|อยากรู้|what is|where is|tell me about/i;
+  const tripPlannerNode = createTripPlannerNode(
+    model,
+    pick(
+      'searchPlacesSemantic',
+      'searchPlacesByKeyword',
+      'findNearbyPlaces',
+      'calculateRoute',
+    ),
+    lookupThumbnails,
+  );
 
-  // Agent node: decides what to do (call tools or generate text)
-  async function agentNode(
-    state: typeof MessagesAnnotation.State,
-  ): Promise<typeof MessagesAnnotation.Update> {
-    const aiMessages = state.messages.filter((m) => m._getType() === 'ai');
-    const isFirstCall = aiMessages.length === 0;
+  const budgetNode = createBudgetNode(model, pick('webSearch'));
 
-    // Only force tools on first call if it looks like a travel request
-    const lastUserMsg = [...state.messages]
-      .reverse()
-      .find((m) => m._getType() === 'human');
-    const userText =
-      typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
-    const isTravelRequest = travelKeywords.test(userText);
+  const routeNode = createRouteNode(
+    model,
+    pick('calculateRoute', 'searchPlacesSemantic', 'webSearch'),
+  );
 
-    const llm =
-      isFirstCall && isTravelRequest ? modelForceTools : modelAutoTools;
+  const eventNode = createEventNode(
+    model,
+    pick('searchEvents', 'webSearch'),
+  );
 
-    // Retry up to 2 times for transient OpenRouter errors
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const response = await llm.invoke([systemMsg, ...state.messages]);
-        return { messages: [response] };
-      } catch (err) {
-        lastError = err as Error;
-        const msg = lastError.message || '';
-        const isTransient =
-          msg.includes('SSE') ||
-          msg.includes('rate') ||
-          msg.includes('timeout') ||
-          msg.includes('ECONNRESET') ||
-          msg.includes('502') ||
-          msg.includes('503');
-        if (!isTransient || attempt === 2) throw lastError;
-        // Wait before retry (exponential backoff)
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-      }
-    }
-    throw lastError!;
+  // ── Routing function ──────────────────────────────────────────────────
+
+  function routeAfterSupervisor(
+    state: typeof TravelAgentState.State,
+  ): string {
+    if ((state.agentRound ?? 0) >= MAX_SUPERVISOR_ROUNDS) return '__end__';
+    const next = state.nextAgent;
+    if (!next || next === '__end__' || next === 'supervisor') return '__end__';
+    return next;
   }
 
-  const toolNode = new ToolNode(subAgentTools);
+  // ── Build graph ───────────────────────────────────────────────────────
 
-  const workflow = new StateGraph(MessagesAnnotation)
-    .addNode('agent', agentNode)
-    .addNode('tools', toolNode)
-    .addEdge('__start__', 'agent')
-    .addConditionalEdges('agent', toolsCondition)
-    .addEdge('tools', 'agent');
+  const workflow = new StateGraph(TravelAgentState)
+    .addNode('supervisor', supervisorNode)
+    .addNode('recommend_agent', recommendNode)
+    .addNode('trip_planner', tripPlannerNode)
+    .addNode('budget_agent', budgetNode)
+    .addNode('route_agent', routeNode)
+    .addNode('event_agent', eventNode)
+    .addEdge('__start__', 'supervisor')
+    .addConditionalEdges('supervisor', routeAfterSupervisor, [
+      'recommend_agent',
+      'trip_planner',
+      'budget_agent',
+      'route_agent',
+      'event_agent',
+      '__end__',
+    ])
+    .addEdge('recommend_agent', 'supervisor')
+    .addEdge('trip_planner', 'supervisor')
+    .addEdge('budget_agent', 'supervisor')
+    .addEdge('route_agent', 'supervisor')
+    .addEdge('event_agent', 'supervisor');
 
   const checkpointer = new MemorySaver();
   return workflow.compile({ checkpointer });

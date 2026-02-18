@@ -24,7 +24,8 @@ export function createSearchTools(toolsService: ToolsService) {
         .default(10)
         .describe('Max results (default 10)'),
     }),
-    func: async ({ query, limit }) => {
+    func: async (input: any) => {
+      const { query, limit } = input;
       const results = await toolsService.vectorSearch(query, limit ?? 10);
       const mapped = results.slice(0, limit ?? 10).map((r) => ({
         pg_place_id: r.pg_place_id,
@@ -61,7 +62,8 @@ export function createSearchTools(toolsService: ToolsService) {
         .default(10)
         .describe('Max results per source'),
     }),
-    func: async ({ query, collections, limit }) => {
+    func: async (input: any) => {
+      const { query, collections, limit } = input;
       const colArray = collections
         ? collections.split(',').map((c: string) => c.trim())
         : undefined;
@@ -84,7 +86,8 @@ export function createSearchTools(toolsService: ToolsService) {
       province: z.string().optional().describe('Province name to filter'),
       limit: z.number().optional().default(10).describe('Max results'),
     }),
-    func: async ({ query, limit }) => {
+    func: async (input: any) => {
+      const { query, limit } = input;
       const results = await toolsService.searchEvents({
         query,
         limit: limit ?? 10,
@@ -114,7 +117,8 @@ export function createSearchTools(toolsService: ToolsService) {
         ),
       limit: z.number().optional().default(10).describe('Max results'),
     }),
-    func: async ({ latitude, longitude, radius_km, collections, limit }) => {
+    func: async (input: any) => {
+      const { latitude, longitude, radius_km, collections, limit } = input;
       const colArray = collections
         ? collections.split(',').map((c: string) => c.trim())
         : undefined;
@@ -145,7 +149,8 @@ export function createSearchTools(toolsService: ToolsService) {
         .min(2)
         .describe('Array of {latitude, longitude} points in visit order'),
     }),
-    func: async ({ waypoints }) => {
+    func: async (input: any) => {
+      const { waypoints } = input;
       const result = await toolsService.calculateRoute({ waypoints });
       return JSON.stringify({
         distance_km: result.distance_km,
@@ -165,7 +170,8 @@ export function createSearchTools(toolsService: ToolsService) {
     schema: z.object({
       query: z.string().describe('Search query in Thai or English'),
     }),
-    func: async ({ query }) => {
+    func: async (input: any) => {
+      const { query } = input;
       const apiKey = process.env.TAVILY_API_KEY;
       if (!apiKey) return JSON.stringify({ error: 'TAVILY_API_KEY not set' });
 

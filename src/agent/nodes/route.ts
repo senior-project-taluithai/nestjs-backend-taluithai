@@ -8,24 +8,24 @@ import { TravelAgentStateType } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
 
 const ROUTE_PROMPT = `You are the Route Agent of TaluiThai AI.
-Your job is to optimize travel routes and calculate distances between places.
+Optimize travel routes and calculate distances between places.
 
 ## Instructions
 1. Use calculateRoute to compute driving distances and travel times.
-2. Suggest optimal visit order to minimize travel time.
-3. Recommend transport modes based on distance:
+2. Use webSearch to find current transport options (Grab prices, bus schedules, train times).
+3. Suggest optimal visit order to minimize travel time.
+4. Recommend transport modes:
    - < 2 km: Walking (15-20 min/km)
    - 2-10 km: Grab/Taxi/Tuk-tuk
    - 10-50 km: Car/Grab
    - 50-300 km: Bus/Van
    - > 300 km: Domestic flight or train
+5. If user didn't specify origin, assume they are already in the area — recommend local transport.
+6. Mention useful apps: Grab, LINE MAN, Bolt for ride-hailing.
 
 ## Output
-- Optimized sequence of places
-- Distance and duration between each pair
-- Recommended transport mode for each segment
-- Total trip distance and time
-- Respond in the same language as the user.`;
+Optimized sequence, distance/duration between pairs, transport mode with estimated cost, total distance/time.
+Respond in the same language as the user.`;
 
 export function createRouteNode(model: ChatOpenAI, tools: StructuredTool[]) {
   const modelWithTools = model.bindTools(tools);

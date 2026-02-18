@@ -1,6 +1,10 @@
 import { Annotation, messagesStateReducer } from '@langchain/langgraph';
 import { BaseMessage } from '@langchain/core/messages';
 
+export type ThumbnailLookupFn = (
+  pgPlaceIds: number[],
+) => Promise<Map<number, string>>;
+
 export interface PlanStep {
   title: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
@@ -100,6 +104,12 @@ export const TravelAgentState = Annotation.Root({
   currentTrip: Annotation<PlannedTrip | undefined>({
     reducer: (_prev, next) => next,
     default: () => undefined,
+  }),
+
+  // Supervisor round counter (prevents infinite loops)
+  agentRound: Annotation<number>({
+    reducer: (_prev, next) => next,
+    default: () => 0,
   }),
 });
 

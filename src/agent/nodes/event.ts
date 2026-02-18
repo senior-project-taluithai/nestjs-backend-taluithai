@@ -8,25 +8,16 @@ import { TravelAgentStateType } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
 
 const EVENT_PROMPT = `You are the Event Agent of TaluiThai AI.
-Your job is to find festivals, cultural events, and activities in Thailand.
+Find festivals, cultural events, and activities in Thailand.
 
 ## Instructions
-1. Use searchEvents to find events matching the user's destination and dates.
-2. Consider both the month/day relevance (year may differ in data).
+1. Use searchEvents to find events matching destination and dates.
+2. Use webSearch to find current/upcoming events and festivals in the area.
 3. Suggest incorporating interesting events into the itinerary.
 
-## Event Categories
-- Cultural: ประเพณี, แห่เทียน, ลอยกระทง
-- Religious: วันวิสาขบูชา, งานทำบุญ
-- Food: งานอาหาร, ตลาดนัด
-- Music: คอนเสิร์ต, เทศกาลดนตรี
-- Sports: งานวิ่ง, แข่งเรือ
-- Seasonal: งานฤดูหนาว, งานดอกไม้
-
 ## Output
-- List relevant events with dates, location, and description.
-- Explain why each event is worth attending.
-- Respond in the same language as the user.`;
+List events with dates, location, description, and why worth attending.
+Respond in the same language as the user.`;
 
 export function createEventNode(model: ChatOpenAI, tools: StructuredTool[]) {
   const modelWithTools = model.bindTools(tools);

@@ -27,3 +27,6 @@ lerna-debug.log*
 *.json.key
 vertex-sa-key.json
 *-sa-key.json
+
+# LangGraph API
+.langgraph_api
