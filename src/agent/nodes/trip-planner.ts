@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages';
 import { TravelAgentStateType, ThumbnailLookupFn } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
+import { retryInvoke } from '../utils/retry-invoke';
 
 // ── Thumbnail sanitization ──────────────────────────────────────────────────
 
@@ -95,6 +96,7 @@ Your job is to create or MODIFY detailed day-by-day itineraries for trips in Tha
    - First search: main interest (e.g. "วัดในเชียงใหม่")
    - Second search: secondary interest (e.g. "ธรรมชาติ เชียงใหม่" or "จุดชมวิว เชียงใหม่")
    - Third search: food/restaurants (e.g. "ร้านอาหาร เชียงใหม่")
+   - Fourth search: hotels/accommodation (e.g. "โรงแรม เชียงใหม่" or "ที่พัก เชียงใหม่")
 2. Use findNearbyPlaces to find restaurants/cafes near planned attractions for lunch and dinner.
 3. Use calculateRoute to verify travel times between places.
 4. Organize places into a realistic daily schedule with 4-6 places per day.
@@ -113,10 +115,19 @@ When modifying an existing trip:
 - Afternoon (13:30-17:00): 2-3 activities
 - Dinner (18:00-20:00): Restaurant suggestion (use findNearbyPlaces)
 
-## CRITICAL: DATABASE ONLY
-- Every place MUST come from searchPlacesSemantic or findNearbyPlaces results.
-- Every item MUST have real latitude, longitude, pg_place_id from the search results.
-- Do NOT invent places, coordinates, or IDs. If you don't have enough places, search again.
+## ABSOLUTE RULE: DATABASE ONLY — NO EXCEPTIONS
+- **EVERY item** in the JSON MUST come from searchPlacesSemantic, searchPlacesByKeyword, or findNearbyPlaces results.
+- **EVERY item** MUST have a real pg_place_id, latitude, longitude COPIED EXACTLY from the tool results.
+- **NEVER** create, invent, or fabricate ANY item that was NOT returned by a tool.
+- **BANNED items**: Do NOT add generic filler items such as:
+  ❌ "เดินทางจาก X ไป Y" (transport)
+  ❌ "เช็คอินที่พัก" (generic hotel check-in)
+  ❌ "ทานอาหารเย็น" (generic dining without a real restaurant from DB)
+  ❌ Any item with made-up coordinates or no pg_place_id
+- If you need a hotel, search for one: searchPlacesSemantic("โรงแรม กระบี่") or findNearbyPlaces with collections="hotel"
+- If you need a restaurant, search for one: findNearbyPlaces with collections="restaurants,cafe"
+- If you don't have enough places, call searchPlacesSemantic AGAIN with different queries.
+- Travel/transport info should go in the trip summary text, NOT as JSON items.
 
 ## CRITICAL: IMAGES
 - thumbnail_url MUST come ONLY from the database tool results.
@@ -134,7 +145,7 @@ Your final response MUST contain this JSON code block:
       "day": 1,
       "items": [
         {
-          "name": "ชื่อสถานที่",
+          "name": "ชื่อสถานที่ (ต้องมาจาก search results เท่านั้น)",
           "type": "attraction",
           "latitude": 18.123,
           "longitude": 98.456,
@@ -151,13 +162,105 @@ Your final response MUST contain this JSON code block:
 }
 \`\`\`
 
+## ITEM TYPE VALUES
+Only use these types: "attraction", "temple", "restaurant", "cafe", "hotel", "park", "museum", "beach", "viewpoint", "market"
+Do NOT use type "transport" — transport is NOT a place.
+
 Respond in the SAME LANGUAGE the user uses.
 
-## CRITICAL
+## FINAL CHECK BEFORE OUTPUT
+Before writing the JSON, verify EACH item:
+✅ Does this item have a pg_place_id from a tool result? → Keep it
+❌ Did I make up this item without searching? → REMOVE it
+❌ Is this a generic transport/check-in entry? → REMOVE it
+
 You MUST call searchPlacesSemantic FIRST to find real places before writing any itinerary.
-Do NOT make up place data. Every item MUST have real latitude, longitude, pg_place_id from search results.
 If user asks for N days, you MUST fill ALL N days with 4-6 places each.
-Call searchPlacesSemantic at least 2-3 times with different queries to get enough variety.`;
+Call searchPlacesSemantic at least 3-4 times with different queries to get enough variety.`;
+
+// ── Post-process: strip items not from search results ────────────────────────
+
+/**
+ * Collect every pg_place_id that appeared in tool-call results
+ * (from searchPlacesSemantic, searchPlacesByKeyword, findNearbyPlaces).
+ */
+function collectValidPgIds(toolMessages: BaseMessage[]): Set<number> {
+  const ids = new Set<number>();
+  for (const m of toolMessages) {
+    if (m._getType() !== 'tool') continue;
+    const content =
+      typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const parsed = JSON.parse(content);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+      const items: Record<string, unknown>[] = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.results)
+          ? parsed.results
+          : Array.isArray(parsed?.postgres)
+            ? [...(parsed.postgres ?? []), ...(parsed.mongodb ?? [])]
+            : [];
+      for (const item of items) {
+        if (typeof item.pg_place_id === 'number') {
+          ids.add(item.pg_place_id);
+        }
+      }
+    } catch {
+      // not JSON, skip
+    }
+  }
+  return ids;
+}
+
+/**
+ * Parse the JSON code block from the LLM response, remove items with
+ * pg_place_id not in validIds, and splice the cleaned JSON back.
+ */
+function stripFakeItems(text: string, validIds: Set<number>): string {
+  const jsonBlockRegex = /```(?:json)?\s*\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  let result = text;
+
+  while ((match = jsonBlockRegex.exec(text)) !== null) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const parsed = JSON.parse(match[1]);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+      const days: Array<{
+        day: number;
+        items?: Array<Record<string, unknown>>;
+      }> = parsed?.days ?? [];
+      if (!Array.isArray(days) || days.length === 0) continue;
+
+      let removed = 0;
+      for (const day of days) {
+        if (!Array.isArray(day.items)) continue;
+        const before = day.items.length;
+        day.items = day.items.filter((item) => {
+          const pid = item.pg_place_id;
+          // Keep items that have a valid pg_place_id from search results
+          if (typeof pid === 'number' && validIds.has(pid)) return true;
+          // Remove fabricated items
+          return false;
+        });
+        removed += before - day.items.length;
+      }
+
+      if (removed > 0) {
+        console.log(
+          `[trip-planner] Removed ${removed} fabricated item(s) without valid pg_place_id`,
+        );
+        const correctedJson = JSON.stringify(parsed, null, 2);
+        const fullBlock = '```json\n' + correctedJson + '\n```';
+        result = result.replace(match[0], fullBlock);
+      }
+    } catch {
+      // not valid JSON, skip
+    }
+  }
+  return result;
+}
 
 // ── Node factory ─────────────────────────────────────────────────────────────
 
@@ -179,7 +282,7 @@ export function createTripPlannerNode(
     ];
 
     const MAX_TOOL_ROUNDS = 12;
-    let response = await modelWithTools.invoke(localMessages);
+    let response = await retryInvoke(() => modelWithTools.invoke(localMessages));
 
     for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       if (!response.tool_calls || response.tool_calls.length === 0) break;
@@ -198,7 +301,7 @@ export function createTripPlannerNode(
           );
         }
       }
-      response = await modelWithTools.invoke(localMessages);
+      response = await retryInvoke(() => modelWithTools.invoke(localMessages));
     }
 
     // Post-process: replace AI-generated thumbnail URLs with real DB values
@@ -208,6 +311,14 @@ export function createTripPlannerNode(
         lookupThumbnails,
       );
       response.content = fixed;
+    }
+
+    // Post-process: remove items whose pg_place_id was NOT in any tool result
+    if (typeof response.content === 'string') {
+      const validIds = collectValidPgIds(localMessages);
+      if (validIds.size > 0) {
+        response.content = stripFakeItems(response.content, validIds);
+      }
     }
 
     return {

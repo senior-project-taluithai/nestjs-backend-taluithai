@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages';
 import { TravelAgentStateType } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
+import { retryInvoke } from '../utils/retry-invoke';
 
 const RECOMMEND_PROMPT = `You are the Recommendation Agent of TaluiThai AI.
 Your job is to suggest places in Thailand based on user preferences OR answer general info questions about places/events.
@@ -47,7 +48,7 @@ export function createRecommendNode(
     ];
 
     const MAX_TOOL_ROUNDS = 6;
-    let response = await modelWithTools.invoke(localMessages);
+    let response = await retryInvoke(() => modelWithTools.invoke(localMessages));
 
     for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       if (!response.tool_calls || response.tool_calls.length === 0) break;
@@ -66,7 +67,7 @@ export function createRecommendNode(
           );
         }
       }
-      response = await modelWithTools.invoke(localMessages);
+      response = await retryInvoke(() => modelWithTools.invoke(localMessages));
     }
 
     return {

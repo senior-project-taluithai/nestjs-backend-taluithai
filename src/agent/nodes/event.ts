@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages';
 import { TravelAgentStateType } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
+import { retryInvoke } from '../utils/retry-invoke';
 
 const EVENT_PROMPT = `You are the Event Agent of TaluiThai AI.
 Find festivals, cultural events, and activities in Thailand.
@@ -33,7 +34,7 @@ export function createEventNode(model: ChatOpenAI, tools: StructuredTool[]) {
     ];
 
     const MAX_TOOL_ROUNDS = 4;
-    let response = await modelWithTools.invoke(localMessages);
+    let response = await retryInvoke(() => modelWithTools.invoke(localMessages));
 
     for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       if (!response.tool_calls || response.tool_calls.length === 0) break;
@@ -52,7 +53,7 @@ export function createEventNode(model: ChatOpenAI, tools: StructuredTool[]) {
           );
         }
       }
-      response = await modelWithTools.invoke(localMessages);
+      response = await retryInvoke(() => modelWithTools.invoke(localMessages));
     }
 
     return {

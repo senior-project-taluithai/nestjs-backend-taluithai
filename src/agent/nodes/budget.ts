@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages';
 import { TravelAgentStateType } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
+import { retryInvoke } from '../utils/retry-invoke';
 
 const BUDGET_PROMPT = `You are the Budget Agent of TaluiThai AI.
 Estimate trip costs based on travel style and destination.
@@ -69,7 +70,7 @@ export function createBudgetNode(
     }
 
     const MAX_TOOL_ROUNDS = 4;
-    let response = await modelBound.invoke(localMessages);
+    let response = await retryInvoke(() => modelBound.invoke(localMessages));
 
     for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       if (!response.tool_calls || response.tool_calls.length === 0) break;
@@ -88,7 +89,7 @@ export function createBudgetNode(
           );
         }
       }
-      response = await modelBound.invoke(localMessages);
+      response = await retryInvoke(() => modelBound.invoke(localMessages));
     }
 
     return {

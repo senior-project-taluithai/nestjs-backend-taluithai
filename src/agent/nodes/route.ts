@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages';
 import { TravelAgentStateType } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
+import { retryInvoke } from '../utils/retry-invoke';
 
 const ROUTE_PROMPT = `You are the Route Agent of TaluiThai AI.
 Optimize travel routes and calculate distances between places.
@@ -41,7 +42,7 @@ export function createRouteNode(model: ChatOpenAI, tools: StructuredTool[]) {
     ];
 
     const MAX_TOOL_ROUNDS = 6;
-    let response = await modelWithTools.invoke(localMessages);
+    let response = await retryInvoke(() => modelWithTools.invoke(localMessages));
 
     for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       if (!response.tool_calls || response.tool_calls.length === 0) break;
@@ -60,7 +61,7 @@ export function createRouteNode(model: ChatOpenAI, tools: StructuredTool[]) {
           );
         }
       }
-      response = await modelWithTools.invoke(localMessages);
+      response = await retryInvoke(() => modelWithTools.invoke(localMessages));
     }
 
     return {

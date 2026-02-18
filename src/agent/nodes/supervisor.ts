@@ -4,6 +4,7 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod/v4';
 import { TravelAgentStateType } from '../state';
 import { StructuredTool } from '@langchain/core/tools';
+import { retryInvoke } from '../utils/retry-invoke';
 
 const ROUTE_TOOL_NAME = 'route_to_agent';
 
@@ -134,7 +135,7 @@ export function createSupervisorNode(
       );
     }
 
-    let response = await modelWithTools.invoke(messages);
+    let response = await retryInvoke(() => modelWithTools.invoke(messages));
 
     // On the FIRST call only: if the model generated text instead of routing,
     // and it's not a short greeting, retry with forced tool choice.
@@ -144,7 +145,7 @@ export function createSupervisorNode(
       typeof response.content === 'string' &&
       response.content.length > 20
     ) {
-      response = await modelForceTool.invoke(messages);
+      response = await retryInvoke(() => modelForceTool.invoke(messages));
     }
 
     // After trip_planner but before budget_agent: force tool call if LLM tried to skip
@@ -154,7 +155,7 @@ export function createSupervisorNode(
       !calledAgents.has('budget_agent') &&
       (!response.tool_calls || response.tool_calls.length === 0)
     ) {
-      response = await modelForceTool.invoke(messages);
+      response = await retryInvoke(() => modelForceTool.invoke(messages));
     }
 
     let nextAgent = '__end__';
