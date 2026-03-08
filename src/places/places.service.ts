@@ -5,6 +5,7 @@ import { Place } from './entities/place.entity';
 import { PlaceReview } from './entities/place-review.entity';
 import { PlaceFilterDto } from './dto/place-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
+import { RecommendationService } from './recommendation.service';
 
 @Injectable()
 export class PlacesService {
@@ -13,7 +14,8 @@ export class PlacesService {
     private placesRepository: Repository<Place>,
     @InjectRepository(PlaceReview)
     private reviewsRepository: Repository<PlaceReview>,
-  ) {}
+    private recommendationService: RecommendationService,
+  ) { }
 
   async findAll(filter: PlaceFilterDto): Promise<PaginatedResultDto<Place>> {
     const {
@@ -37,7 +39,7 @@ export class PlacesService {
 
     if (searchTerm) {
       query.andWhere(
-        '(LOWER(place.name) LIKE LOWER(:searchTerm) OR LOWER(place.nameEn) LIKE LOWER(:searchTerm) OR LOWER(place.detail) LIKE LOWER(:searchTerm) OR LOWER(place.detailEn) LIKE LOWER(:searchTerm))',
+        '(LOWER(place.name) LIKE LOWER(:searchTerm) OR LOWER(place.nameEn) LIKE LOWER(:searchTerm) OR LOWER(province.name) LIKE LOWER(:searchTerm) OR LOWER(province.nameEn) LIKE LOWER(:searchTerm))',
         { searchTerm: `%${searchTerm}%` },
       );
     }
@@ -71,7 +73,7 @@ export class PlacesService {
     return {
       data: places,
       page,
-      lastPage: Math.ceil(total / limit),
+      last_page: Math.ceil(total / limit),
       total,
     };
   }
@@ -100,10 +102,26 @@ export class PlacesService {
     return this.placesRepository.save(newPlace);
   }
 
-  async getRecommended(): Promise<Place[]> {
-    // Mock: just take first 10
+  async getRecommended(
+    query = 'สถานที่ท่องเที่ยวยอดนิยม',
+    preferredCategoryIds: number[] = [],
+    preferredRegions: string[] = [],
+  ): Promise<Place[]> {
+    const placeIds = await this.recommendationService.recommend(
+      query, 10, preferredCategoryIds, preferredRegions,
+    );
+
+    if (placeIds.length > 0) {
+      const places = await this.findByIds(placeIds);
+      // Preserve recommendation score order
+      const idOrder = new Map(placeIds.map((id, i) => [id, i]));
+      return places.sort((a, b) => (idOrder.get(a.id) ?? 99) - (idOrder.get(b.id) ?? 99));
+    }
+
+    // Fallback: top-rated places
     return this.placesRepository.find({
       take: 10,
+      order: { rating: 'DESC' },
       relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
     });
   }

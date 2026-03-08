@@ -174,6 +174,13 @@ Before writing the JSON, verify EACH item:
 ❌ Did I make up this item without searching? → REMOVE it
 ❌ Is this a generic transport/check-in entry? → REMOVE it
 
+## CRITICAL: GEOGRAPHIC PROXIMITY
+- ALL places in one trip MUST be within the SAME province or nearby provinces (within ~100km).
+- If a search returns places from far-away provinces, DISCARD those results and search again with a more specific query including the province name.
+- For example, if user asks for a Krabi trip, do NOT include places from Chiang Mai or Bangkok.
+- When results include province_name, use it to validate that the place is in the right area.
+- Prefer places that have a pg_place_id (these are fully in our database with complete metadata).
+
 You MUST call searchPlacesSemantic FIRST to find real places before writing any itinerary.
 If user asks for N days, you MUST fill ALL N days with 4-6 places each.
 Call searchPlacesSemantic at least 3-4 times with different queries to get enough variety.`;
@@ -262,6 +269,91 @@ function stripFakeItems(text: string, validIds: Set<number>): string {
   return result;
 }
 
+// ── Post-process: strip geo-distant outliers ─────────────────────────────────
+
+/**
+ * Haversine distance in km between two lat/lng points.
+ */
+function haversineKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Calculate the geographic centroid of all items with coordinates,
+ * then remove items that are more than MAX_RADIUS_KM away from it.
+ */
+function stripDistantItems(text: string, maxRadiusKm = 150): string {
+  const jsonBlockRegex = /```(?:json)?\s*\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  let result = text;
+
+  while ((match = jsonBlockRegex.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      const days: Array<{
+        day: number;
+        items?: Array<Record<string, unknown>>;
+      }> = parsed?.days ?? [];
+      if (!Array.isArray(days) || days.length === 0) continue;
+
+      // Collect all coordinates
+      const coords: { lat: number; lng: number }[] = [];
+      for (const day of days) {
+        for (const item of day.items ?? []) {
+          const lat = item.latitude as number;
+          const lng = item.longitude as number;
+          if (typeof lat === 'number' && typeof lng === 'number') {
+            coords.push({ lat, lng });
+          }
+        }
+      }
+      if (coords.length < 2) continue;
+
+      // Calculate centroid
+      const centLat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+      const centLng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+
+      let removed = 0;
+      for (const day of days) {
+        if (!Array.isArray(day.items)) continue;
+        const before = day.items.length;
+        day.items = day.items.filter((item) => {
+          const lat = item.latitude as number;
+          const lng = item.longitude as number;
+          if (typeof lat !== 'number' || typeof lng !== 'number') return true;
+          return haversineKm(centLat, centLng, lat, lng) <= maxRadiusKm;
+        });
+        removed += before - day.items.length;
+      }
+
+      if (removed > 0) {
+        console.log(
+          `[trip-planner] Removed ${removed} geographically distant item(s) (>${maxRadiusKm}km from centroid)`,
+        );
+        const correctedJson = JSON.stringify(parsed, null, 2);
+        const fullBlock = '```json\n' + correctedJson + '\n```';
+        result = result.replace(match[0], fullBlock);
+      }
+    } catch {
+      // not valid JSON, skip
+    }
+  }
+  return result;
+}
+
 // ── Node factory ─────────────────────────────────────────────────────────────
 
 export function createTripPlannerNode(
@@ -319,6 +411,8 @@ export function createTripPlannerNode(
       if (validIds.size > 0) {
         response.content = stripFakeItems(response.content, validIds);
       }
+      // Post-process: remove geographically distant outliers
+      response.content = stripDistantItems(response.content);
     }
 
     return {

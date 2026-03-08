@@ -27,7 +27,7 @@ export function createSearchTools(toolsService: ToolsService) {
     func: async (input: any) => {
       const { query, limit } = input;
       const results = await toolsService.vectorSearch(query, limit ?? 10);
-      const mapped = results.slice(0, limit ?? 10).map((r) => ({
+      const mapped = results.slice(0, limit ?? 10).map((r: any) => ({
         pg_place_id: r.pg_place_id,
         title: r.title,
         address: r.address,
@@ -38,6 +38,7 @@ export function createSearchTools(toolsService: ToolsService) {
         thumbnail: r.thumbnail,
         score: r.score,
         source_collection: r.source_collection,
+        province_name: r.province_name,
       }));
       return JSON.stringify({ results: mapped });
     },
@@ -129,7 +130,21 @@ export function createSearchTools(toolsService: ToolsService) {
         collections: colArray,
         limit: limit ?? 10,
       });
-      return JSON.stringify(results);
+      // Ensure pg_place_id and province_name are visible in tool output
+      const mapped = (results as any[]).map((r: any) => ({
+        pg_place_id: r.pg_place_id,
+        title: r.title,
+        address: r.address,
+        category: r.category,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        review_rating: r.review_rating,
+        thumbnail: r.thumbnail,
+        distance_km: r.distance_km,
+        source_collection: r.source_collection,
+        province_name: r.province_name,
+      }));
+      return JSON.stringify(mapped);
     },
   });
 

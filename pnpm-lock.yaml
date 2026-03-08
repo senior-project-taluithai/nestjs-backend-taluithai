@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@langchain/community':
         specifier: ^1.1.15
-        version: 1.1.15(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.962.0)(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(zod@4.3.6))(@ibm-cloud/watsonx-ai@1.7.7)(@langchain/core@1.1.24(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6)))(@opentelemetry/api@1.9.0)(@qdrant/js-client-rest@1.16.2(typescript@5.9.3))(@smithy/util-utf8@4.2.0)(fast-xml-parser@5.2.5)(google-auth-library@10.5.0)(ibm-cloud-sdk-core@5.4.6)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mongodb@7.1.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(pg@8.16.3)(playwright@1.58.2)(typeorm@0.3.28(mongodb@7.1.0)(pg@8.16.3)(ts-node@10.9.2(@swc/core@1.15.11)(@types/node@22.19.3)(typescript@5.9.3)))(ws@8.19.0)
+        version: 1.1.15(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.962.0)(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(zod@4.3.6))(@ibm-cloud/watsonx-ai@1.7.7)(@langchain/core@1.1.24(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6)))(@opentelemetry/api@1.9.0)(@qdrant/js-client-rest@1.16.2(typescript@5.9.3))(@smithy/util-utf8@4.2.0)(fast-xml-parser@5.2.5)(google-auth-library@10.6.1)(ibm-cloud-sdk-core@5.4.6)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mongodb@7.1.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(pg@8.16.3)(playwright@1.58.2)(typeorm@0.3.28(mongodb@7.1.0)(pg@8.16.3)(ts-node@10.9.2(@swc/core@1.15.11)(@types/node@22.19.3)(typescript@5.9.3)))(ws@8.19.0)
       '@langchain/core':
         specifier: ^1.1.24
         version: 1.1.24(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))
@@ -68,6 +68,9 @@ importers:
       dotenv:
         specifier: ^17.3.1
         version: 17.3.1
+      google-auth-library:
+        specifier: ^10.6.1
+        version: 10.6.1
       langchain:
         specifier: ^1.2.24
         version: 1.2.24(@langchain/core@1.1.24(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6)))(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(zod-to-json-schema@3.25.1(zod@4.3.6))
@@ -3345,8 +3348,8 @@ packages:
     resolution: {integrity: sha512-c/c15i26VrJ4IRt5Z89DnIzCGDn9EcebibhAOjw5ibqEHsE1wLUgkPn9RDmNcUKyU87GeaL633nyJ+pplFR2ZQ==}
     engines: {node: '>=18'}
 
-  google-auth-library@10.5.0:
-    resolution: {integrity: sha512-7ABviyMOlX5hIVD60YOfHw4/CxOfBhyduaYB+wbFWCWoni4N7SLcV46hrVRktuBbZjFC9ONyqamZITN7q3n32w==}
+  google-auth-library@10.6.1:
+    resolution: {integrity: sha512-5awwuLrzNol+pFDmKJd0dKtZ0fPLAtoA5p7YO4ODsDu6ONJUVqbYwvv8y2ZBO5MBNp9TJXigB19710kYpBPdtA==}
     engines: {node: '>=18'}
 
   google-logging-utils@1.1.3:
@@ -3363,10 +3366,6 @@ packages:
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
-
-  gtoken@8.0.0:
-    resolution: {integrity: sha512-+CqsMbHPiSTdtSO14O51eMNlrp9N79gmeqmXeouJOhfucAedHw9noVe/n5uJk3tbKE6a+6ZCQg3RPhVhHByAIw==}
-    engines: {node: '>=18'}
 
   handlebars@4.7.8:
     resolution: {integrity: sha512-vafaFqs8MZkRrSX7sFVUdo3ap/eNiLnb4IakshzvP56X5Nr1iGKAIqdX6tMlm6HcNRIkr6AxO5jFEoJzzpT8aQ==}
@@ -6366,7 +6365,7 @@ snapshots:
       - openai
       - ws
 
-  '@langchain/community@1.1.15(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.962.0)(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(zod@4.3.6))(@ibm-cloud/watsonx-ai@1.7.7)(@langchain/core@1.1.24(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6)))(@opentelemetry/api@1.9.0)(@qdrant/js-client-rest@1.16.2(typescript@5.9.3))(@smithy/util-utf8@4.2.0)(fast-xml-parser@5.2.5)(google-auth-library@10.5.0)(ibm-cloud-sdk-core@5.4.6)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mongodb@7.1.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(pg@8.16.3)(playwright@1.58.2)(typeorm@0.3.28(mongodb@7.1.0)(pg@8.16.3)(ts-node@10.9.2(@swc/core@1.15.11)(@types/node@22.19.3)(typescript@5.9.3)))(ws@8.19.0)':
+  '@langchain/community@1.1.15(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.962.0)(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(zod@4.3.6))(@ibm-cloud/watsonx-ai@1.7.7)(@langchain/core@1.1.24(@opentelemetry/api@1.9.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6)))(@opentelemetry/api@1.9.0)(@qdrant/js-client-rest@1.16.2(typescript@5.9.3))(@smithy/util-utf8@4.2.0)(fast-xml-parser@5.2.5)(google-auth-library@10.6.1)(ibm-cloud-sdk-core@5.4.6)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mongodb@7.1.0)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(pg@8.16.3)(playwright@1.58.2)(typeorm@0.3.28(mongodb@7.1.0)(pg@8.16.3)(ts-node@10.9.2(@swc/core@1.15.11)(@types/node@22.19.3)(typescript@5.9.3)))(ws@8.19.0)':
     dependencies:
       '@browserbasehq/stagehand': 1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(openai@6.22.0(ws@8.19.0)(zod@4.3.6))(zod@4.3.6)
       '@ibm-cloud/watsonx-ai': 1.7.7
@@ -6388,7 +6387,7 @@ snapshots:
       '@qdrant/js-client-rest': 1.16.2(typescript@5.9.3)
       '@smithy/util-utf8': 4.2.0
       fast-xml-parser: 5.2.5
-      google-auth-library: 10.5.0
+      google-auth-library: 10.6.1
       ignore: 7.0.5
       jsonwebtoken: 9.0.3
       mongodb: 7.1.0
@@ -7669,8 +7668,7 @@ snapshots:
 
   acorn@8.15.0: {}
 
-  agent-base@7.1.4:
-    optional: true
+  agent-base@7.1.4: {}
 
   agentkeepalive@4.6.0:
     dependencies:
@@ -7839,8 +7837,7 @@ snapshots:
       node-addon-api: 8.5.0
       node-gyp-build: 4.8.4
 
-  bignumber.js@9.3.1:
-    optional: true
+  bignumber.js@9.3.1: {}
 
   bin-version-check@5.1.0:
     dependencies:
@@ -8108,8 +8105,7 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
-  data-uri-to-buffer@4.0.1:
-    optional: true
+  data-uri-to-buffer@4.0.1: {}
 
   dayjs@1.11.19: {}
 
@@ -8428,7 +8424,6 @@ snapshots:
     dependencies:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
-    optional: true
 
   fflate@0.8.2: {}
 
@@ -8554,7 +8549,6 @@ snapshots:
   formdata-polyfill@4.0.10:
     dependencies:
       fetch-blob: 3.2.0
-    optional: true
 
   formidable@3.5.4:
     dependencies:
@@ -8592,7 +8586,6 @@ snapshots:
       rimraf: 5.0.10
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   gcp-metadata@8.1.2:
     dependencies:
@@ -8601,7 +8594,6 @@ snapshots:
       json-bigint: 1.0.0
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   gensync@1.0.0-beta.2: {}
 
@@ -8663,21 +8655,18 @@ snapshots:
 
   globals@16.5.0: {}
 
-  google-auth-library@10.5.0:
+  google-auth-library@10.6.1:
     dependencies:
       base64-js: 1.5.1
       ecdsa-sig-formatter: 1.0.11
       gaxios: 7.1.3
       gcp-metadata: 8.1.2
       google-logging-utils: 1.1.3
-      gtoken: 8.0.0
       jws: 4.0.1
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
-  google-logging-utils@1.1.3:
-    optional: true
+  google-logging-utils@1.1.3: {}
 
   gopd@1.2.0: {}
 
@@ -8696,14 +8685,6 @@ snapshots:
       responselike: 3.0.0
 
   graceful-fs@4.2.11: {}
-
-  gtoken@8.0.0:
-    dependencies:
-      gaxios: 7.1.3
-      jws: 4.0.1
-    transitivePeerDependencies:
-      - supports-color
-    optional: true
 
   handlebars@4.7.8:
     dependencies:
@@ -8753,7 +8734,6 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   human-signals@2.1.0: {}
 
@@ -9231,7 +9211,6 @@ snapshots:
   json-bigint@1.0.0:
     dependencies:
       bignumber.js: 9.3.1
-    optional: true
 
   json-buffer@3.0.1: {}
 
@@ -9507,7 +9486,6 @@ snapshots:
       data-uri-to-buffer: 4.0.1
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
-    optional: true
 
   node-gyp-build@4.8.4: {}
 
@@ -9848,7 +9826,6 @@ snapshots:
   rimraf@5.0.10:
     dependencies:
       glob: 10.5.0
-    optional: true
 
   router@2.2.0:
     dependencies:
@@ -10461,8 +10438,7 @@ snapshots:
     dependencies:
       defaults: 1.0.4
 
-  web-streams-polyfill@3.3.3:
-    optional: true
+  web-streams-polyfill@3.3.3: {}
 
   web-streams-polyfill@4.0.0-beta.3: {}
 

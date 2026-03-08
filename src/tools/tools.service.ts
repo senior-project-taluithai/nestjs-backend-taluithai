@@ -100,7 +100,7 @@ export class ToolsService {
   async vectorSearch(
     query: string,
     limit = 10,
-  ): Promise<(VectorSearchResult & { pg_place_id?: number })[]> {
+  ): Promise<(VectorSearchResult & { pg_place_id?: number; province_name?: string })[]> {
     const results = await this.qdrantService.search(query, { limit });
 
     // Enrich with PG place_id by matching name + approximate coordinates
@@ -109,15 +109,30 @@ export class ToolsService {
         try {
           if (!r.title || !r.latitude || !r.longitude) return r;
 
-          const match = await this.placeRepository
+          // Try exact name + coordinate match first
+          let match = await this.placeRepository
             .createQueryBuilder('p')
-            .select('p.id')
+            .leftJoinAndSelect('p.province', 'province')
             .where('p.name = :name', { name: r.title })
-            .andWhere('ABS(p.latitude - :lat) < 0.001', { lat: r.latitude })
-            .andWhere('ABS(p.longitude - :lng) < 0.001', { lng: r.longitude })
+            .andWhere('ABS(p.latitude - :lat) < 0.01', { lat: r.latitude })
+            .andWhere('ABS(p.longitude - :lng) < 0.01', { lng: r.longitude })
             .getOne();
 
-          return { ...r, pg_place_id: match?.id ?? undefined };
+          // Fallback: coordinate-only match (within ~100m)
+          if (!match) {
+            match = await this.placeRepository
+              .createQueryBuilder('p')
+              .leftJoinAndSelect('p.province', 'province')
+              .where('ABS(p.latitude - :lat) < 0.001', { lat: r.latitude })
+              .andWhere('ABS(p.longitude - :lng) < 0.001', { lng: r.longitude })
+              .getOne();
+          }
+
+          return {
+            ...r,
+            pg_place_id: match?.id ?? undefined,
+            province_name: match?.province?.name ?? undefined,
+          };
         } catch {
           return r;
         }
@@ -136,13 +151,39 @@ export class ToolsService {
     collections?: string[];
     limit?: number;
   }) {
-    return this.mongoService.findNearby({
+    const mongoResults = await this.mongoService.findNearby({
       latitude: options.latitude,
       longitude: options.longitude,
       radiusKm: options.radiusKm,
       collections: options.collections,
       limit: options.limit,
     });
+
+    // Enrich with pg_place_id and province info from Postgres
+    const enriched = await Promise.all(
+      mongoResults.map(async (r: any) => {
+        try {
+          if (!r.title || !r.latitude || !r.longitude) return r;
+
+          const match = await this.placeRepository
+            .createQueryBuilder('p')
+            .leftJoinAndSelect('p.province', 'province')
+            .where('ABS(p.latitude - :lat) < 0.01', { lat: r.latitude })
+            .andWhere('ABS(p.longitude - :lng) < 0.01', { lng: r.longitude })
+            .getOne();
+
+          return {
+            ...r,
+            pg_place_id: match?.id ?? undefined,
+            province_name: match?.province?.name ?? undefined,
+          };
+        } catch {
+          return r;
+        }
+      }),
+    );
+
+    return enriched;
   }
 
   // ==================== Route (OSRM) ====================

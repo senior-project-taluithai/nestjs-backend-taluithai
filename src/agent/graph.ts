@@ -28,7 +28,7 @@ const MAX_SUPERVISOR_ROUNDS = 5;
  */
 export function buildTravelAgentGraph(
   tools: StructuredTool[],
-  modelName = 'google/gemini-2.0-flash-001',
+  modelName = process.env.OPENROUTER_MODEL_NAME, // google/gemini-2.0-flash-001 process.env.
   lookupThumbnails?: ThumbnailLookupFn,
 ) {
   const model = new ChatOpenAI({

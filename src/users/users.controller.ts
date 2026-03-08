@@ -18,6 +18,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { UpdateUserPreferencesDto } from './dto/update-user-preferences.dto';
+import { UpdateRecommendationPreferencesDto } from './dto/update-recommendation-preferences.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -41,6 +42,28 @@ export class UsersController {
     return this.usersService.updateUserPreferences(
       req.user.id,
       body.preferenceIds,
+    );
+  }
+
+  @Get('me/recommendation-preferences')
+  @ApiOperation({ summary: 'Get my recommendation preferences (categories & regions)' })
+  @ApiResponse({ status: 200, description: 'Return preferred category IDs and regions.' })
+  async getRecommendationPreferences(@Req() req) {
+    return this.usersService.getRecommendationPreferences(req.user.id);
+  }
+
+  @Post('me/recommendation-preferences')
+  @ApiOperation({ summary: 'Update my recommendation preferences (categories & regions)' })
+  @ApiResponse({ status: 200, description: 'Recommendation preferences updated.' })
+  @ApiBody({ type: UpdateRecommendationPreferencesDto })
+  async updateRecommendationPreferences(
+    @Req() req,
+    @Body() body: UpdateRecommendationPreferencesDto,
+  ) {
+    return this.usersService.updateRecommendationPreferences(
+      req.user.id,
+      body.preferredCategoryIds,
+      body.preferredRegions,
     );
   }
 }

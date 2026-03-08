@@ -6,11 +6,13 @@ import { PlaceImage } from './entities/place-image.entity';
 import { PlaceCategory } from './entities/place-category.entity';
 import { PlacesController } from './places.controller';
 import { PlacesService } from './places.service';
+import { RecommendationService } from './recommendation.service';
+import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Place, PlaceReview, PlaceImage, PlaceCategory])],
+  imports: [TypeOrmModule.forFeature([Place, PlaceReview, PlaceImage, PlaceCategory]), UsersModule],
   controllers: [PlacesController],
-  providers: [PlacesService],
-  exports: [PlacesService],
+  providers: [PlacesService, RecommendationService],
+  exports: [PlacesService, RecommendationService],
 })
 export class PlacesModule {}

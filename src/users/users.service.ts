@@ -63,4 +63,43 @@ export class UsersService {
     await this.usersRepository.save(user);
     return user.travelPreferences;
   }
+
+  async getRecommendationPreferences(userId: string) {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+    });
+    if (!user) {
+      return { preferredCategoryIds: [], preferredRegions: [] };
+    }
+    return {
+      preferredCategoryIds: user.preferredCategoryIds ?? [],
+      preferredRegions: user.preferredRegions ?? [],
+    };
+  }
+
+  async updateRecommendationPreferences(
+    userId: string,
+    preferredCategoryIds?: number[],
+    preferredRegions?: string[],
+  ) {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+    });
+    if (!user) {
+      return { preferredCategoryIds: [], preferredRegions: [] };
+    }
+
+    if (preferredCategoryIds !== undefined) {
+      user.preferredCategoryIds = preferredCategoryIds;
+    }
+    if (preferredRegions !== undefined) {
+      user.preferredRegions = preferredRegions;
+    }
+
+    await this.usersRepository.save(user);
+    return {
+      preferredCategoryIds: user.preferredCategoryIds,
+      preferredRegions: user.preferredRegions,
+    };
+  }
 }

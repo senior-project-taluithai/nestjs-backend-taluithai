@@ -32,6 +32,14 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   resetTokenExp?: Date | null;
 
+  // Preferred category IDs for recommendation (e.g. [3, 8])
+  @Column('int', { array: true, default: '{}' })
+  preferredCategoryIds: number[];
+
+  // Preferred regions for recommendation (e.g. ["North", "South"])
+  @Column('varchar', { array: true, default: '{}' })
+  preferredRegions: string[];
+
   @CreateDateColumn()
   createdAt: Date;
 
