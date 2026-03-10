@@ -8,6 +8,8 @@ import { BestSeasonEnum } from '../places/entities/place.entity';
 import { PlacesService } from '../places/places.service';
 import { EventsService } from '../events/events.service';
 import { FavoritesService } from '../favorites/favorites.service';
+import { RecommendationService } from '../places/recommendation.service';
+import { UsersService } from '../users/users.service';
 import { CreateTripDayItemDto, UpdateTripDayItemDto, ReorderTripDayItemsDto } from './dto/trip-day-item.dto';
 
 @Injectable()
@@ -22,7 +24,9 @@ export class TripsService {
     private placesService: PlacesService,
     private eventsService: EventsService,
     private favoritesService: FavoritesService,
-  ) {}
+    private recommendationService: RecommendationService,
+    private usersService: UsersService,
+  ) { }
 
   async findAll(userId: string): Promise<Trip[]> {
     return this.tripsRepository.find({
@@ -145,7 +149,7 @@ export class TripsService {
 
       // Smart update of trip days
       const daysDiff = Math.ceil((newEndDate.getTime() - newStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-      
+
       // Ensure existing days are sorted
       existing.tripDays.sort((a, b) => a.dayNumber - b.dayNumber);
 
@@ -169,9 +173,9 @@ export class TripsService {
           day.date = new Date(currentDate);
           day.items = [];
         }
-        
+
         // Ensure day number is correct (in case we are reusing but shifted?? mostly just for safety)
-        day.dayNumber = i + 1; 
+        day.dayNumber = i + 1;
         newTripDays.push(day);
 
         // Advance date
@@ -232,26 +236,92 @@ export class TripsService {
     }
 
     const provinceIds = trip.provinces.map((p) => p.id);
-    
-    // Get recommended places filtered by provinces
-    const allPlaces = await this.placesService.getRecommended();
-    
-    // Filter to only include places from trip's provinces
-    const filteredData = allPlaces.filter((place) =>
-      provinceIds.includes(place.province.id),
+    const provinceNames = trip.provinces.map((p) => p.name).filter(Boolean);
+
+    // Collect place IDs already in the trip (to exclude from recommendations)
+    const existingPlaceIds = new Set<number>();
+    trip.tripDays.forEach((day) => {
+      day.items.forEach((item) => {
+        if (item.place_id) existingPlaceIds.add(item.place_id);
+      });
+    });
+
+    // Build contextual query from trip's existing places + provinces
+    const placeNames: string[] = [];
+    trip.tripDays.forEach((day) => {
+      day.items.forEach((item) => {
+        if (item.place?.name) placeNames.push(item.place.name);
+      });
+    });
+
+    const queryParts = [`ท่องเที่ยว ${provinceNames.join(' ')}`];
+    if (placeNames.length > 0) {
+      // Include up to 5 place names for context
+      queryParts.push(placeNames.slice(0, 5).join(' '));
+    }
+    const query = queryParts.join(' ');
+
+    // Get user preferences for reranking
+    const prefs = await this.usersService.getRecommendationPreferences(userId);
+
+    // Request more results to account for filtering
+    const fetchK = Math.max(limit * 5, 50);
+
+    const placeIds = await this.recommendationService.recommend(
+      query,
+      fetchK,
+      prefs.preferredCategoryIds,
+      prefs.preferredRegions,
     );
+
+    if (placeIds.length === 0) {
+      // Fallback: province-filtered top-rated places
+      return this.getRecommendedPlacesFallback(provinceIds, existingPlaceIds, page, limit);
+    }
+
+    // Filter: within trip provinces & not already in trip
+    const filteredIds = placeIds.filter((id) => !existingPlaceIds.has(id));
+
+    // Fetch full Place objects
+    const places = filteredIds.length > 0
+      ? await this.placesService.findByIds(filteredIds)
+      : [];
+
+    // Keep only places in trip provinces & preserve recommendation order
+    const idOrder = new Map(filteredIds.map((id, i) => [id, i]));
+    const filtered = places
+      .filter((p) => p.province && provinceIds.includes(p.province.id))
+      .sort((a, b) => (idOrder.get(a.id) ?? 99) - (idOrder.get(b.id) ?? 99));
 
     // Paginate
     const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginatedData = filteredData.slice(startIndex, endIndex);
+    const paginatedData = filtered.slice(startIndex, startIndex + limit);
 
     return {
       data: paginatedData,
       page,
-      lastPage: Math.ceil(filteredData.length / limit),
-      total: filteredData.length,
+      last_page: Math.ceil(filtered.length / limit) || 1,
+      total: filtered.length,
     };
+  }
+
+  private async getRecommendedPlacesFallback(
+    provinceIds: number[],
+    excludeIds: Set<number>,
+    page: number,
+    limit: number,
+  ) {
+    const result = await this.placesService.findAll({
+      page,
+      limit,
+      provinces: provinceIds,
+      minRating: 4,
+    });
+
+    // Exclude places already in trip
+    result.data = result.data.filter((p) => !excludeIds.has(p.id));
+
+    return result;
   }
 
   async getRecommendedEvents(
@@ -266,10 +336,10 @@ export class TripsService {
     }
 
     const provinceIds = trip.provinces.map((p) => p.id);
-    
+
     // Get recommended events filtered by provinces
     const allEvents = await this.eventsService.getRecommended();
-    
+
     // Filter to only include events from trip's provinces
     const filteredData = allEvents.filter((event) =>
       provinceIds.includes(event.provinceId),
@@ -283,7 +353,7 @@ export class TripsService {
     return {
       data: paginatedData,
       page,
-      lastPage: Math.ceil(filteredData.length / limit),
+      last_page: Math.ceil(filteredData.length / limit),
       total: filteredData.length,
     };
   }
@@ -310,16 +380,16 @@ export class TripsService {
 
     // Filter by specific provinces if provided, but must be within trip provinces
     if (provinceIds && provinceIds.length > 0) {
-        targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
+      targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
     }
 
     if (targetProvinceIds.length === 0) {
-         return {
-            data: [],
-            page,
-            lastPage: 1,
-            total: 0
-         }
+      return {
+        data: [],
+        page,
+        last_page: 1,
+        total: 0
+      }
     }
 
     return this.placesService.findAll({
@@ -331,7 +401,7 @@ export class TripsService {
       minRating,
       bestSeason: bestSeason as BestSeasonEnum[]
     });
-  }  
+  }
 
   async getEventsInTripProvinces(
     tripId: number,
@@ -352,16 +422,16 @@ export class TripsService {
 
     // Filter by specific provinces if provided, but must be within trip provinces
     if (provinceIds && provinceIds.length > 0) {
-        targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
+      targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
     }
 
     if (targetProvinceIds.length === 0) {
-         return {
-            data: [],
-            page,
-            lastPage: 1,
-            total: 0
-         }
+      return {
+        data: [],
+        page,
+        last_page: 1,
+        total: 0
+      }
     }
 
     return this.eventsService.findAll({
@@ -427,16 +497,17 @@ export class TripsService {
       throw new NotFoundException(`Day ${dayNumber} not found`);
     }
 
-    // Verify the item exists
-    if (createItemDto.item_type === 'place') {
+    // Verify the item exists (soft check — warn but don't block)
+    if (createItemDto.item_type === 'place' && createItemDto.item_id) {
       const place = await this.placesService.findOne(createItemDto.item_id);
       if (!place) {
-        throw new NotFoundException('Place not found');
+        // Place may come from Qdrant/MongoDB but not exist in Postgres yet — allow anyway
+        console.warn(`Place ${createItemDto.item_id} not found in Postgres, adding item anyway`);
       }
-    } else if (createItemDto.item_type === 'event') {
+    } else if (createItemDto.item_type === 'event' && createItemDto.item_id) {
       const event = await this.eventsService.findOne(createItemDto.item_id);
       if (!event) {
-        throw new NotFoundException('Event not found');
+        console.warn(`Event ${createItemDto.item_id} not found in Postgres, adding item anyway`);
       }
     }
 
@@ -460,7 +531,7 @@ export class TripsService {
     };
 
     tripDay.items.push(newItem);
-    
+
     // Sort by order
     tripDay.items.sort((a, b) => a.order - b.order);
 

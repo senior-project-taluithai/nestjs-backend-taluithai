@@ -22,11 +22,11 @@ export class Event {
   @Column()
   name: string;
 
-  @Column({ name: 'name_en' })
+  @Column({ name: 'name_en', nullable: true })
   @Expose({ name: 'name_en' })
   nameEn: string;
 
-  @Column()
+  @Column({ nullable: true })
   detail: string;
 
   @Column({ name: 'detail_en', nullable: true })
@@ -66,7 +66,7 @@ export class Event {
   @Column({ type: 'float', default: 0 })
   rating: number;
 
-  @Column({ name: 'thumbnail_url' })
+  @Column({ name: 'thumbnail_url', nullable: true })
   @Expose({ name: 'thumbnail_url' })
   thumbnailUrl: string;
 

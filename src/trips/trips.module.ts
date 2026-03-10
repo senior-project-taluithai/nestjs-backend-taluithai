@@ -7,6 +7,7 @@ import { Province } from '../provinces/entities/province.entity';
 import { PlacesModule } from '../places/places.module';
 import { EventsModule } from '../events/events.module';
 import { FavoritesModule } from '../favorites/favorites.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { FavoritesModule } from '../favorites/favorites.module';
     PlacesModule,
     EventsModule,
     FavoritesModule,
+    UsersModule,
   ],
   controllers: [TripsController],
   providers: [TripsService],

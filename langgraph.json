@@ -1,0 +1,7 @@
+{
+  "node_version": "20",
+  "graphs": {
+    "agent": "./src/agent/langgraph-entry.ts:graph"
+  },
+  "env": ".env"
+}

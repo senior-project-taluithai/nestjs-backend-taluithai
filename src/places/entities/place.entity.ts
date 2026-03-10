@@ -29,11 +29,11 @@ export class Place {
   @Expose()
   name: string;
 
-  @Column({ name: 'name_en' })
+  @Column({ name: 'name_en', nullable: true })
   @Expose({ name: 'name_en' })
   nameEn: string;
 
-  @Column()
+  @Column({ nullable: true })
   @Expose()
   detail: string;
 
@@ -70,7 +70,7 @@ export class Place {
   @Expose()
   rating: number;
 
-  @Column({ name: 'thumbnail_url' })
+  @Column({ name: 'thumbnail_url', nullable: true })
   @Expose({ name: 'thumbnail_url' })
   thumbnailUrl: string;
 

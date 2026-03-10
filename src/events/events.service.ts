@@ -13,7 +13,7 @@ export class EventsService {
     private eventsRepository: Repository<Event>,
     @InjectRepository(EventReview)
     private reviewsRepository: Repository<EventReview>,
-  ) {}
+  ) { }
 
   async findAll(filter: EventFilterDto): Promise<PaginatedResultDto<Event>> {
     const {
@@ -65,9 +65,9 @@ export class EventsService {
       // (EventStartDate <= FilterEndDate) AND (EventEndDate >= FilterStartDate)
       query.andWhere(
         '(event.startDate <= :endDate AND event.endDate >= :startDate)',
-        { 
-          startDate: new Date(filter.startDate), 
-          endDate: new Date(filter.endDate) 
+        {
+          startDate: new Date(filter.startDate),
+          endDate: new Date(filter.endDate)
         },
       );
     }
@@ -85,7 +85,7 @@ export class EventsService {
     return {
       data: events,
       page: safePage,
-      lastPage: Math.ceil(total / safeLimit),
+      last_page: Math.ceil(total / safeLimit),
       total,
     };
   }

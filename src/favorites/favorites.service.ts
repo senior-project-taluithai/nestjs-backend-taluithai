@@ -15,7 +15,7 @@ export class FavoritesService {
     private favPlacesRepo: Repository<UserFavoritePlace>,
     @InjectRepository(UserFavoriteEvent)
     private favEventsRepo: Repository<UserFavoriteEvent>,
-  ) {}
+  ) { }
 
   async getFavoritePlaces(userId: string, paginationDto: PaginationDto): Promise<PaginatedResultDto<PlaceDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
@@ -41,7 +41,7 @@ export class FavoritesService {
       data,
       total,
       page: safePage,
-      lastPage: Math.ceil(total / safePageSize),
+      last_page: Math.ceil(total / safePageSize),
     };
   }
 
@@ -69,7 +69,7 @@ export class FavoritesService {
       data,
       total,
       page: safePage,
-      lastPage: Math.ceil(total / safePageSize),
+      last_page: Math.ceil(total / safePageSize),
     };
   }
 
@@ -98,7 +98,7 @@ export class FavoritesService {
     await this.favEventsRepo.save(fav);
     return { message: 'Added to favorites', liked: true };
   }
-  async isPlaceSaved(userId: string, placeId: number): Promise<boolean> { 
+  async isPlaceSaved(userId: string, placeId: number): Promise<boolean> {
     const count = await this.favPlacesRepo.count({
       where: { userId, placeId },
     });
@@ -113,8 +113,8 @@ export class FavoritesService {
   }
 
   async getFavoritePlacesInProvinces(
-    userId: string, 
-    provinceIds: number[], 
+    userId: string,
+    provinceIds: number[],
     paginationDto: PaginationDto
   ): Promise<PaginatedResultDto<PlaceDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
@@ -150,13 +150,13 @@ export class FavoritesService {
       data,
       total,
       page: safePage,
-      lastPage: Math.ceil(total / safePageSize),
+      last_page: Math.ceil(total / safePageSize),
     };
   }
 
   async getFavoriteEventsInProvinces(
-    userId: string, 
-    provinceIds: number[], 
+    userId: string,
+    provinceIds: number[],
     paginationDto: PaginationDto,
     startDate?: Date,
     endDate?: Date
@@ -177,8 +177,8 @@ export class FavoritesService {
     }
 
     if (startDate && endDate) {
-       // (EventStartDate <= FilterEndDate) AND (EventEndDate >= FilterStartDate)
-       query.andWhere(
+      // (EventStartDate <= FilterEndDate) AND (EventEndDate >= FilterStartDate)
+      query.andWhere(
         '(event.startDate <= :endDate AND event.endDate >= :startDate)',
         { startDate, endDate },
       );
@@ -202,7 +202,7 @@ export class FavoritesService {
       data,
       total,
       page: safePage,
-      lastPage: Math.ceil(total / safePageSize),
+      last_page: Math.ceil(total / safePageSize),
     };
   }
 }

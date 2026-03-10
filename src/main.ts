@@ -9,13 +9,30 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
+  const frontendUrl: string =
+    configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
   app.enableCors({
-    origin: configService.get('FRONTEND_URL'),
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, curl, etc.)
+      if (!origin) return callback(null, true);
+      // Allow configured frontend URL
+      if (origin === frontendUrl) return callback(null, true);
+      // Allow any localhost/127.0.0.1 in development
+      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   });
 
   app.use(cookieParser());
-  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+    }),
+  );
 
   const config = new DocumentBuilder()
     .setTitle('Taluithai API')

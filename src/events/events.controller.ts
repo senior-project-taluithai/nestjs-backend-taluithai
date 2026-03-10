@@ -8,7 +8,7 @@ import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 @ApiTags('Events')
 @Controller('events')
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(private readonly eventsService: EventsService) { }
 
   @Get('recommended')
   @UseInterceptors(ClassSerializerInterceptor)
@@ -24,7 +24,7 @@ export class EventsController {
   @ApiOperation({ summary: 'Explore events with search and filter' })
   @ApiResponse({ status: 200, description: 'Return filtered events with pagination.', type: PaginatedResultDto })
   async explore(@Body() filter: EventFilterDto): Promise<PaginatedResultDto<EventDto>> {
-    const { data, page, lastPage, total } = await this.eventsService.findAll(filter);
+    const { data, page, last_page, total } = await this.eventsService.findAll(filter);
     return {
       data: data.map(
         (event) =>
@@ -36,7 +36,7 @@ export class EventsController {
           }),
       ),
       page,
-      lastPage,
+      last_page,
       total,
     };
   }

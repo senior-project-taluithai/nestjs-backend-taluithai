@@ -1,5 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Expose } from 'class-transformer';
 
 export class PaginatedResultDto<T> {
   @ApiProperty({ isArray: true })
@@ -8,9 +7,8 @@ export class PaginatedResultDto<T> {
   @ApiProperty()
   page: number;
 
-  @ApiProperty({ name: 'last_page' })
-  @Expose({ name: 'last_page' })
-  lastPage: number;
+  @ApiProperty()
+  last_page: number;
 
   @ApiProperty()
   total: number;
