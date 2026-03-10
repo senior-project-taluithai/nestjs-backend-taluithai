@@ -6,6 +6,8 @@ import { PlaceFilterDto } from './dto/place-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 import { OptionalJwtGuard } from '../auth/guards/optional-jwt.guard';
 import { UsersService } from '../users/users.service';
+import { InteractionsService } from '../interactions/interactions.service';
+import { TiktokService } from '../tiktok/tiktok.service';
 
 @ApiTags('Places')
 @Controller('places')
@@ -13,6 +15,8 @@ export class PlacesController {
   constructor(
     private readonly placesService: PlacesService,
     private readonly usersService: UsersService,
+    private readonly interactionsService: InteractionsService,
+    private readonly tiktokService: TiktokService,
   ) { }
 
   @Get('recommended')
@@ -24,16 +28,23 @@ export class PlacesController {
     let preferredCategoryIds: number[] = [];
     let preferredRegions: string[] = [];
 
+    let engagement;
+
     if (req.user?.id) {
-      const prefs = await this.usersService.getRecommendationPreferences(req.user.id);
+      const [prefs, eng] = await Promise.all([
+        this.usersService.getRecommendationPreferences(req.user.id),
+        this.interactionsService.getUserEngagement(req.user.id),
+      ]);
       preferredCategoryIds = prefs.preferredCategoryIds;
       preferredRegions = prefs.preferredRegions;
+      engagement = eng;
     }
 
     const places = await this.placesService.getRecommended(
       'สถานที่ท่องเที่ยว',
       preferredCategoryIds,
       preferredRegions,
+      engagement,
     );
     return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
   }
@@ -79,6 +90,16 @@ export class PlacesController {
   }
 
 
+
+  @Get(':id/tiktok-videos')
+  @ApiOperation({ summary: 'Get TikTok videos for a place' })
+  @ApiResponse({ status: 200, description: 'Return TikTok video URLs.' })
+  async getTiktokVideos(@Param('id') id: string) {
+    const place = await this.placesService.findOne(+id);
+    if (!place) return { videos: [] };
+    const videos = await this.tiktokService.getVideosForPlace(place.id, place.name);
+    return { videos };
+  }
 
   @Get(':id')
   @UseInterceptors(ClassSerializerInterceptor)

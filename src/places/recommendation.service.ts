@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleAuth } from 'google-auth-library';
+import { EngagementScores } from '../interactions/interactions.service';
 
 interface RecommendationResult {
   place_id: number;
@@ -52,6 +53,7 @@ export class RecommendationService implements OnModuleInit {
     topK = 10,
     preferredCategoryIds: number[] = [],
     preferredRegions: string[] = [],
+    engagement?: EngagementScores,
   ): Promise<number[]> {
     if (!this.serviceUrl) return [];
 
@@ -71,6 +73,12 @@ export class RecommendationService implements OnModuleInit {
           'preferred_regions',
           preferredRegions.join(','),
         );
+      }
+      if (engagement) {
+        url.searchParams.set('engagement_plays', String(engagement.plays));
+        url.searchParams.set('engagement_likes', String(engagement.likes));
+        url.searchParams.set('engagement_shares', String(engagement.shares));
+        url.searchParams.set('engagement_collects', String(engagement.collects));
       }
 
       const res = await client.request<RecommendResponse>({

@@ -9,9 +9,11 @@ import { PlacesController } from './places.controller';
 import { PlacesService } from './places.service';
 import { RecommendationService } from './recommendation.service';
 import { UsersModule } from '../users/users.module';
+import { InteractionsModule } from '../interactions/interactions.module';
+import { TiktokModule } from '../tiktok/tiktok.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Place, PlaceReview, PlaceImage, PlaceCategory, Category]), UsersModule],
+  imports: [TypeOrmModule.forFeature([Place, PlaceReview, PlaceImage, PlaceCategory, Category]), UsersModule, InteractionsModule, TiktokModule],
   controllers: [PlacesController],
   providers: [PlacesService, RecommendationService],
   exports: [PlacesService, RecommendationService],
