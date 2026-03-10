@@ -8,6 +8,7 @@ import { Category } from '../categories/entities/category.entity';
 import { PlaceFilterDto } from './dto/place-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 import { RecommendationService } from './recommendation.service';
+import { EngagementScores } from '../interactions/interactions.service';
 
 const REGION_NAME_MAP: Record<string, string> = {
   North: 'ภาคเหนือ',
@@ -119,6 +120,7 @@ export class PlacesService {
     query = 'สถานที่ท่องเที่ยวยอดนิยม',
     preferredCategoryIds: number[] = [],
     preferredRegions: string[] = [],
+    engagement?: EngagementScores,
   ): Promise<Place[]> {
     // Build a dynamic query from user preferences so the vector search
     // returns contextually different results per user
@@ -144,7 +146,7 @@ export class PlacesService {
 
     // Fetch more candidates so reranking has a bigger pool
     const placeIds = await this.recommendationService.recommend(
-      enrichedQuery, 30, preferredCategoryIds, preferredRegions,
+      enrichedQuery, 30, preferredCategoryIds, preferredRegions, engagement,
     );
 
     if (placeIds.length > 0) {

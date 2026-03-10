@@ -10,6 +10,7 @@ import { EventsService } from '../events/events.service';
 import { FavoritesService } from '../favorites/favorites.service';
 import { RecommendationService } from '../places/recommendation.service';
 import { UsersService } from '../users/users.service';
+import { InteractionsService } from '../interactions/interactions.service';
 import { CreateTripDayItemDto, UpdateTripDayItemDto, ReorderTripDayItemsDto } from './dto/trip-day-item.dto';
 
 @Injectable()
@@ -26,6 +27,7 @@ export class TripsService {
     private favoritesService: FavoritesService,
     private recommendationService: RecommendationService,
     private usersService: UsersService,
+    private interactionsService: InteractionsService,
   ) { }
 
   async findAll(userId: string): Promise<Trip[]> {
@@ -261,8 +263,11 @@ export class TripsService {
     }
     const query = queryParts.join(' ');
 
-    // Get user preferences for reranking
-    const prefs = await this.usersService.getRecommendationPreferences(userId);
+    // Get user preferences + engagement for reranking
+    const [prefs, engagement] = await Promise.all([
+      this.usersService.getRecommendationPreferences(userId),
+      this.interactionsService.getUserEngagement(userId),
+    ]);
 
     // Request more results to account for filtering
     const fetchK = Math.max(limit * 5, 50);
@@ -272,6 +277,7 @@ export class TripsService {
       fetchK,
       prefs.preferredCategoryIds,
       prefs.preferredRegions,
+      engagement,
     );
 
     if (placeIds.length === 0) {

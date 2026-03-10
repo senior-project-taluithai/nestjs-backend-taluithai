@@ -17,6 +17,7 @@ import { MongoModule } from './mongo/mongo.module';
 import { EmbeddingModule } from './embedding/embedding.module';
 import { ToolsModule } from './tools/tools.module';
 import { AgentModule } from './agent/agent.module';
+import { InteractionsModule } from './interactions/interactions.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { AgentModule } from './agent/agent.module';
     EmbeddingModule,
     ToolsModule,
     AgentModule,
+    InteractionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
