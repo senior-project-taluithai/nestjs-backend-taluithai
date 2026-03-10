@@ -31,7 +31,7 @@ export class PlacesController {
     }
 
     const places = await this.placesService.getRecommended(
-      'สถานที่ท่องเที่ยวยอดนิยม',
+      'สถานที่ท่องเที่ยว',
       preferredCategoryIds,
       preferredRegions,
     );

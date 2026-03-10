@@ -3,9 +3,20 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { PlaceReview } from './entities/place-review.entity';
+import { PlaceCategory } from './entities/place-category.entity';
+import { Category } from '../categories/entities/category.entity';
 import { PlaceFilterDto } from './dto/place-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 import { RecommendationService } from './recommendation.service';
+
+const REGION_NAME_MAP: Record<string, string> = {
+  North: 'ภาคเหนือ',
+  South: 'ภาคใต้',
+  Northeast: 'ภาคอีสาน',
+  Central: 'ภาคกลาง',
+  East: 'ภาคตะวันออก',
+  West: 'ภาคตะวันตก',
+};
 
 @Injectable()
 export class PlacesService {
@@ -14,6 +25,8 @@ export class PlacesService {
     private placesRepository: Repository<Place>,
     @InjectRepository(PlaceReview)
     private reviewsRepository: Repository<PlaceReview>,
+    @InjectRepository(Category)
+    private categoryRepository: Repository<Category>,
     private recommendationService: RecommendationService,
   ) { }
 
@@ -107,15 +120,40 @@ export class PlacesService {
     preferredCategoryIds: number[] = [],
     preferredRegions: string[] = [],
   ): Promise<Place[]> {
+    // Build a dynamic query from user preferences so the vector search
+    // returns contextually different results per user
+    const queryParts = ['สถานที่ท่องเที่ยว'];
+
+    if (preferredRegions.length > 0) {
+      const regionThai = preferredRegions
+        .map((r) => REGION_NAME_MAP[r] || r)
+        .join(' ');
+      queryParts.push(regionThai);
+    }
+
+    if (preferredCategoryIds.length > 0) {
+      const categories = await this.categoryRepository.find({
+        where: { id: In(preferredCategoryIds) },
+      });
+      if (categories.length > 0) {
+        queryParts.push(categories.map((c) => c.name).join(' '));
+      }
+    }
+
+    const enrichedQuery = queryParts.join(' ');
+
+    // Fetch more candidates so reranking has a bigger pool
     const placeIds = await this.recommendationService.recommend(
-      query, 10, preferredCategoryIds, preferredRegions,
+      enrichedQuery, 30, preferredCategoryIds, preferredRegions,
     );
 
     if (placeIds.length > 0) {
       const places = await this.findByIds(placeIds);
-      // Preserve recommendation score order
+      // Preserve recommendation score order, return top 10
       const idOrder = new Map(placeIds.map((id, i) => [id, i]));
-      return places.sort((a, b) => (idOrder.get(a.id) ?? 99) - (idOrder.get(b.id) ?? 99));
+      return places
+        .sort((a, b) => (idOrder.get(a.id) ?? 99) - (idOrder.get(b.id) ?? 99))
+        .slice(0, 10);
     }
 
     // Fallback: top-rated places
