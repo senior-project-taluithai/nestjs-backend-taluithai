@@ -174,6 +174,15 @@ export class PlacesService {
     });
   }
 
+  async getHiddenGems(): Promise<Place[]> {
+    return this.placesRepository.find({
+      take: 10,
+      // Reverse order of popular or specific logic to get different items
+      order: { id: 'DESC' },
+      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
+    });
+  }
+
   async getBestSeason(): Promise<Place[]> {
     const currentMonth = new Date().getMonth() + 1; // 1-12
     let season: 'summer' | 'winter' | 'rainy' | 'all_year' = 'all_year';
@@ -198,5 +207,15 @@ export class PlacesService {
       .where('place.best_season = :season OR place.best_season = :allYear', { season, allYear: 'all_year' })
       .take(4)
       .getMany();
+  }
+
+  async createReview(placeId: number, userId: string, comment: string, rating: number): Promise<PlaceReview> {
+    const review = this.reviewsRepository.create({
+      placeId,
+      userId,
+      comment,
+      rating,
+    });
+    return this.reviewsRepository.save(review);
   }
 }

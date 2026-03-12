@@ -126,11 +126,20 @@ export class EventsService {
     return this.eventsRepository.createQueryBuilder('event')
       .leftJoinAndSelect('event.province', 'province')
       .leftJoinAndSelect('event.eventCategories', 'eventCategories')
-      .leftJoinAndSelect('eventCategories.category', 'category')
       .leftJoinAndSelect('event.images', 'images')
       .where('event.startDate > :now', { now: new Date() })
       .orderBy('event.startDate', 'ASC')
       .take(10)
       .getMany();
+  }
+
+  async createReview(eventId: number, userId: string, comment: string, rating: number): Promise<EventReview> {
+    const review = this.reviewsRepository.create({
+      eventId,
+      userId,
+      comment,
+      rating,
+    });
+    return this.reviewsRepository.save(review);
   }
 }

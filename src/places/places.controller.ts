@@ -1,13 +1,15 @@
 import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor, Query, UseGuards, Req } from '@nestjs/common';
 import { PlacesService } from './places.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { PlaceDto, PlaceDetailDto } from './dto/place.dto';
 import { PlaceFilterDto } from './dto/place-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 import { OptionalJwtGuard } from '../auth/guards/optional-jwt.guard';
+import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from '../users/users.service';
 import { InteractionsService } from '../interactions/interactions.service';
 import { TiktokService } from '../tiktok/tiktok.service';
+import { PlaceReviewDto } from '../reviews/dto/review.dto';
 
 @ApiTags('Places')
 @Controller('places')
@@ -80,6 +82,15 @@ export class PlacesController {
     return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
   }
 
+  @Get('hidden-gems')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get hidden gem places' })
+  @ApiResponse({ status: 200, description: 'Return hidden gem places.', type: [PlaceDto] })
+  async getHiddenGems() {
+    const places = await this.placesService.getHiddenGems();
+    return places.map(p => new PlaceDto({ ...p, categories: p.placeCategories?.map(pc => pc.category.nameEn) || [], imageUrls: p.images?.map(i => i.url) || [] }));
+  }
+
   @Get('best-for-season')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get best places for this season' })
@@ -119,5 +130,22 @@ export class PlacesController {
   @ApiOperation({ summary: 'Create place' })
   create(@Body() body: any) {
     return this.placesService.create(body);
+  }
+
+  @Post(':id/reviews')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Add a review to a place' })
+  @ApiResponse({ status: 201, description: 'Review created successfully.', type: PlaceReviewDto })
+  async addReview(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: { comment: string; rating: number },
+  ) {
+    const review = await this.placesService.createReview(+id, req.user.id, body.comment, body.rating);
+    // You might want to reload it to ensure user info is joined if DTO needs it, 
+    // but a basic DTO map works if we just want to return success
+    return new PlaceReviewDto({ ...review, user: req.user } as any);
   }
 }

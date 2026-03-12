@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor, Query, UseGuards, Req } from '@nestjs/common';
 import { EventsService } from './events.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { EventDto, EventDetailDto } from './dto/event.dto';
 import { EventFilterDto } from './dto/event-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
+import { AuthGuard } from '@nestjs/passport';
+import { EventReviewDto } from '../reviews/dto/review.dto';
 
 @ApiTags('Events')
 @Controller('events')
@@ -70,5 +72,20 @@ export class EventsController {
   @ApiOperation({ summary: 'Create event' })
   create(@Body() body: any) {
     return this.eventsService.create(body);
+  }
+
+  @Post(':id/reviews')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Add a review to an event' })
+  @ApiResponse({ status: 201, description: 'Review created successfully.', type: EventReviewDto })
+  async addReview(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: { comment: string; rating: number },
+  ) {
+    const review = await this.eventsService.createReview(+id, req.user.id, body.comment, body.rating);
+    return new EventReviewDto({ ...review, user: req.user } as any);
   }
 }
