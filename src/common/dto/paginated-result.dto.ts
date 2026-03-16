@@ -12,4 +12,10 @@ export class PaginatedResultDto<T> {
 
   @ApiProperty()
   total: number;
+
+  @ApiProperty({ required: false })
+  avgRating?: number;
+
+  @ApiProperty({ required: false })
+  totalReviews?: number;
 }

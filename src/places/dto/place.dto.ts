@@ -55,7 +55,11 @@ export class PlaceDto {
   @Expose()
   @Type(() => String)
   @ApiProperty({ type: [String], example: ['Temple', 'Historical'] })
-  categories: string[]; 
+  categories: string[];
+
+  @Expose({ name: 'review_count' })
+  @ApiProperty({ name: 'review_count', example: 10 })
+  reviewCount: number;
 
   constructor(partial: Partial<PlaceDto>) {
     Object.assign(this, partial);

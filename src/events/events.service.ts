@@ -72,7 +72,31 @@ export class EventsService {
       );
     }
 
+    // Clone query for stats calculation before pagination
+    const statsQuery = query.clone();
+
+    // Sorting
+    if (filter.orderField) {
+      const field = filter.orderField === 'name_en' ? 'event.nameEn' :
+        filter.orderField === 'reviewCount' ? 'reviewCount' :
+          `event.${filter.orderField}`;
+
+      if (filter.orderField === 'reviewCount') {
+        query.leftJoin('event.reviews', 'review_count_join')
+          .addSelect('COUNT(review_count_join.id)', 'review_count')
+          .groupBy('event.id')
+          .addGroupBy('province.id')
+          .addGroupBy('images.id')
+          .addGroupBy('eventCategories.id')
+          .addGroupBy('category.id')
+          .orderBy('review_count', filter.orderDir || 'DESC');
+      } else {
+        query.orderBy(field, filter.orderDir || 'DESC');
+      }
+    }
+
     query
+      .loadRelationCountAndMap('event.reviewCount', 'event.reviews')
       .skip((safePage - 1) * safeLimit)
       .take(safeLimit);
 
@@ -82,11 +106,20 @@ export class EventsService {
 
     const [events, total] = await query.getManyAndCount();
 
+    // Calculate stats
+    const stats = await statsQuery
+      .select('AVG(event.rating)', 'avgRating')
+      .leftJoin('event.reviews', 'review_stats')
+      .addSelect('COUNT(review_stats.id)', 'totalReviews')
+      .getRawOne();
+
     return {
       data: events,
       page: safePage,
       last_page: Math.ceil(total / safeLimit),
       total,
+      avgRating: parseFloat(stats.avgRating || 0).toFixed(1) as any,
+      totalReviews: parseInt(stats.totalReviews || 0, 10),
     };
   }
 

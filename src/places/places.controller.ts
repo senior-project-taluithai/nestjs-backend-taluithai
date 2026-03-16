@@ -56,12 +56,15 @@ export class PlacesController {
   @ApiOperation({ summary: 'Explore places with search and filter' })
   @ApiResponse({ status: 200, description: 'Return filtered places with pagination.', type: PaginatedResultDto })
   async explore(@Body() filter: PlaceFilterDto): Promise<PaginatedResultDto<PlaceDto>> {
-    const { data, page, last_page, total } = await this.placesService.findAll(filter);
+
+    const { data, page, last_page, total, avgRating, totalReviews } = await this.placesService.findAll(filter);
+
     return {
       data: data.map(
         (place) =>
           new PlaceDto({
             ...place,
+            reviewCount: place.reviewCount,
             categories:
               place.placeCategories?.map((pc) => pc.category.nameEn) || [],
             imageUrls: place.images?.map((i) => i.url) || [],
@@ -70,8 +73,11 @@ export class PlacesController {
       page,
       last_page,
       total,
+      avgRating,
+      totalReviews,
     };
   }
+
 
   @Get('popular')
   @UseInterceptors(ClassSerializerInterceptor)
@@ -117,6 +123,7 @@ export class PlacesController {
   @ApiOperation({ summary: 'Get place by id' })
   @ApiResponse({ status: 200, description: 'Return place.', type: PlaceDetailDto })
   async findOne(@Param('id') id: string) {
+    if (isNaN(+id)) return null;
     const place = await this.placesService.findOne(+id);
     if (!place) return null;
     return new PlaceDetailDto({

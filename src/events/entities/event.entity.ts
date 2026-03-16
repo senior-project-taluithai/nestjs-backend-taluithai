@@ -79,4 +79,6 @@ export class Event {
 
   @OneToMany(() => EventReview, (review) => review.event)
   reviews: EventReview[];
+
+  reviewCount?: number;
 }
