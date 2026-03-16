@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Body, Param, UseInterceptors, ClassSerializerInterceptor, Query, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseInterceptors,
+  ClassSerializerInterceptor,
+  Query,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
+
 import { EventsService } from './events.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { EventDto, EventDetailDto } from './dto/event.dto';
@@ -15,10 +27,21 @@ export class EventsController {
   @Get('recommended')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get recommended events' })
-  @ApiResponse({ status: 200, description: 'Return recommended events.', type: [EventDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'Return recommended events.',
+    type: [EventDto],
+  })
   async getRecommended() {
     const events = await this.eventsService.getRecommended();
-    return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.nameEn) || [], imageUrls: e.images?.map(i => i.url) || [] }));
+    return events.map(
+      (e) =>
+        new EventDto({
+          ...e,
+          categories: e.eventCategories?.map((ec) => ec.category.nameEn) || [],
+          imageUrls: e.images?.map((i) => i.url) || [],
+        }),
+    );
   }
 
   @Post('explore')
@@ -26,12 +49,13 @@ export class EventsController {
   @ApiOperation({ summary: 'Explore events with search and filter' })
   @ApiResponse({ status: 200, description: 'Return filtered events with pagination.', type: PaginatedResultDto })
   async explore(@Body() filter: EventFilterDto): Promise<PaginatedResultDto<EventDto>> {
-    const { data, page, last_page, total } = await this.eventsService.findAll(filter);
+    const { data, page, last_page, total, avgRating, totalReviews } = await this.eventsService.findAll(filter);
     return {
       data: data.map(
         (event) =>
           new EventDto({
             ...event,
+            reviewCount: event.reviewCount,
             categories:
               event.eventCategories?.map((ec) => ec.category.nameEn) || [],
             imageUrls: event.images?.map((i) => i.url) || [],
@@ -40,25 +64,42 @@ export class EventsController {
       page,
       last_page,
       total,
+      avgRating,
+      totalReviews,
     };
   }
+
 
   @Get('upcoming')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get upcoming events' })
-  @ApiResponse({ status: 200, description: 'Return upcoming events.', type: [EventDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'Return upcoming events.',
+    type: [EventDto],
+  })
   async getUpcoming() {
     const events = await this.eventsService.getUpcoming();
-    return events.map(e => new EventDto({ ...e, categories: e.eventCategories?.map(ec => ec.category.nameEn) || [], imageUrls: e.images?.map(i => i.url) || [] }));
+    return events.map(
+      (e) =>
+        new EventDto({
+          ...e,
+          categories: e.eventCategories?.map((ec) => ec.category.nameEn) || [],
+          imageUrls: e.images?.map((i) => i.url) || [],
+        }),
+    );
   }
-
-
 
   @Get(':id')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get event by id' })
-  @ApiResponse({ status: 200, description: 'Return event.', type: EventDetailDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Return event.',
+    type: EventDetailDto,
+  })
   async findOne(@Param('id') id: string) {
+    if (isNaN(+id)) return null;
     const event = await this.eventsService.findOne(+id);
     if (!event) return null;
     return new EventDetailDto({

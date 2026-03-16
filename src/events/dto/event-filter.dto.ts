@@ -67,6 +67,16 @@ export class EventFilterDto {
   @Type(() => Number)
   limit?: number = 10;
 
+  @ApiPropertyOptional({ description: 'Field to sort by' })
+  @IsOptional()
+  @IsString()
+  orderField?: string;
+
+  @ApiPropertyOptional({ description: 'Sort direction', enum: ['ASC', 'DESC'] })
+  @IsOptional()
+  @IsEnum(['ASC', 'DESC'])
+  orderDir?: 'ASC' | 'DESC' = 'DESC';
+
   @ApiPropertyOptional({ description: 'Filter by start date (ISO string)' })
   @IsOptional()
   @IsString()

@@ -78,17 +78,50 @@ export class PlacesService {
       query.andWhere('place.rating >= :minRating', { minRating });
     }
 
+    // Clone query for stats calculation before pagination
+    const statsQuery = query.clone();
+
+    // Sorting
+    if (filter.orderField) {
+      const field = filter.orderField === 'name_en' ? 'place.nameEn' :
+        filter.orderField === 'reviewCount' ? 'reviewCount' :
+          `place.${filter.orderField}`;
+
+      if (filter.orderField === 'reviewCount') {
+        query.leftJoin('place.reviews', 'review_count_join')
+          .addSelect('COUNT(review_count_join.id)', 'review_count')
+          .groupBy('place.id')
+          .addGroupBy('province.id')
+          .addGroupBy('images.id')
+          .addGroupBy('placeCategories.id')
+          .addGroupBy('category.id')
+          .orderBy('review_count', filter.orderDir || 'DESC');
+      } else {
+        query.orderBy(field, filter.orderDir || 'DESC');
+      }
+    }
+
     query
+      .loadRelationCountAndMap('place.reviewCount', 'place.reviews')
       .skip((page - 1) * limit)
       .take(limit);
 
     const [places, total] = await query.getManyAndCount();
+
+    // Calculate stats
+    const stats = await statsQuery
+      .select('AVG(place.rating)', 'avgRating')
+      .leftJoin('place.reviews', 'review_stats')
+      .addSelect('COUNT(review_stats.id)', 'totalReviews')
+      .getRawOne();
 
     return {
       data: places,
       page,
       last_page: Math.ceil(total / limit),
       total,
+      avgRating: parseFloat(stats.avgRating || 0).toFixed(1) as any,
+      totalReviews: parseInt(stats.totalReviews || 0, 10),
     };
   }
 

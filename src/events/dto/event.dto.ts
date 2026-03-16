@@ -67,6 +67,10 @@ export class EventDto {
   @ApiProperty({ type: [String], example: ['Cultural', 'Festival'] })
   categories: string[];
 
+  @Expose({ name: 'review_count' })
+  @ApiProperty({ name: 'review_count', example: 10 })
+  reviewCount: number;
+
   constructor(partial: Partial<EventDto>) {
     Object.assign(this, partial);
   }

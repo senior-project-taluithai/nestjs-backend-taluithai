@@ -85,4 +85,6 @@ export class Place {
   @OneToMany(() => PlaceReview, (review) => review.place)
   @Expose()
   reviews: PlaceReview[];
+
+  reviewCount?: number;
 }
