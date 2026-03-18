@@ -13,7 +13,18 @@ import { InteractionsModule } from '../interactions/interactions.module';
 import { TiktokModule } from '../tiktok/tiktok.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Place, PlaceReview, PlaceImage, PlaceCategory, Category]), UsersModule, InteractionsModule, TiktokModule],
+  imports: [
+    TypeOrmModule.forFeature([
+      Place,
+      PlaceReview,
+      PlaceImage,
+      PlaceCategory,
+      Category,
+    ]),
+    UsersModule,
+    InteractionsModule,
+    TiktokModule,
+  ],
   controllers: [PlacesController],
   providers: [PlacesService, RecommendationService],
   exports: [PlacesService, RecommendationService],

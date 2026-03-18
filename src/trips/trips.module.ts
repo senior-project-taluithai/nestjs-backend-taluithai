@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TripsController } from './trips.controller';
 import { TripsService } from './trips.service';
+import { TripsSchedulerService } from './trips-scheduler.service';
 import { Trip, TripDay } from './entities/trip.entity';
 import { Province } from '../provinces/entities/province.entity';
 import { PlacesModule } from '../places/places.module';
@@ -20,6 +21,6 @@ import { InteractionsModule } from '../interactions/interactions.module';
     InteractionsModule,
   ],
   controllers: [TripsController],
-  providers: [TripsService],
+  providers: [TripsService, TripsSchedulerService],
 })
 export class TripsModule {}

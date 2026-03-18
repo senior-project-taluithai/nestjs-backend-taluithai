@@ -15,8 +15,10 @@ import { Province } from '../../provinces/entities/province.entity';
 
 export enum TripStatus {
   DRAFT = 'draft',
+  PLANNED = 'planned',
   UPCOMING = 'upcoming',
   COMPLETED = 'completed',
+  PASS = 'pass',
 }
 
 export interface TripItem {
@@ -72,6 +74,9 @@ export class Trip {
     inverseJoinColumn: { name: 'province_id', referencedColumnName: 'id' },
   })
   provinces: Province[];
+
+  @Column({ type: 'jsonb', nullable: true })
+  budget: any;
 
   @CreateDateColumn()
   createdAt: Date;

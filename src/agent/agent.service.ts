@@ -1,10 +1,30 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ToolsService } from '../tools/tools.service';
 import { PlacesService } from '../places/places.service';
 import { createSearchTools } from './tools/search.tools';
-import { buildTravelAgentGraph } from './graph';
+import { createBudgetTools } from './tools/budget.tools';
+import {
+  AgentGraph,
+  buildTravelAgentGraph,
+  collectValidPgIds,
+  fixThumbnailsInResponse,
+  stripDistantItems,
+  stripFakeItems,
+} from './graph';
 import { HumanMessage } from '@langchain/core/messages';
 import { randomUUID } from 'crypto';
+import { validateTripWithDeepAgent } from './validator';
+
+const DEFAULT_RECURSION_LIMIT = 80;
+const MIN_RECURSION_LIMIT = 10;
+const MAX_RECURSION_LIMIT = 240;
+const THREAD_TTL_HOURS = 24;
+const THREAD_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface ThreadInfo {
   thread_id: string;
@@ -16,10 +36,11 @@ export interface ThreadInfo {
 }
 
 @Injectable()
-export class AgentService implements OnModuleInit {
+export class AgentService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentService.name);
-  private graph: ReturnType<typeof buildTravelAgentGraph> | null = null;
+  private graph: AgentGraph | null = null;
   private threads = new Map<string, ThreadInfo>();
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly toolsService: ToolsService,
@@ -36,24 +57,53 @@ export class AgentService implements OnModuleInit {
     process.env.LANGCHAIN_PROJECT =
       process.env.LANGSMITH_PROJECT || 'taluithai-agent';
 
-    // Create a thumbnail lookup function that fetches real URLs from Postgres
-    const lookupThumbnails = async (
-      pgPlaceIds: number[],
-    ): Promise<Map<number, string>> => {
-      const places = await this.placesService.findByIds(pgPlaceIds);
-      const map = new Map<number, string>();
-      for (const p of places) {
-        map.set(p.id, p.thumbnailUrl || '');
-      }
-      return map;
-    };
-
     this.logger.log('Initializing travel agent graph...');
-    const tools = createSearchTools(this.toolsService);
-    this.graph = buildTravelAgentGraph(tools, undefined, lookupThumbnails);
-    this.logger.log(
-      `Travel agent graph compiled successfully (LangSmith tracing: ${process.env.LANGCHAIN_TRACING_V2 === 'true' && !!process.env.LANGCHAIN_API_KEY ? 'ON' : 'OFF'})`,
+    const tools = [
+      ...createSearchTools(this.toolsService),
+      ...createBudgetTools(),
+    ];
+    this.graph = buildTravelAgentGraph(
+      tools,
+      undefined,
+      this.lookupThumbnails.bind(this),
     );
+    this.logger.log(
+      `Travel agent graph compiled successfully (LangSmith tracing: ${process.env.LANGCHAIN_TRACING_V2 === 'true' && !!process.env.LANGSMITH_API_KEY ? 'ON' : 'OFF'})`,
+    );
+
+    // Start periodic cleanup of old threads
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupOldThreads();
+    }, THREAD_CLEANUP_INTERVAL_MS);
+    this.logger.log('Thread cleanup scheduler started');
+  }
+
+  onModuleDestroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+      this.logger.log('Thread cleanup scheduler stopped');
+    }
+  }
+
+  private cleanupOldThreads() {
+    const now = new Date();
+    const ttlMs = THREAD_TTL_HOURS * 60 * 60 * 1000;
+    let cleanedCount = 0;
+
+    for (const [threadId, thread] of this.threads.entries()) {
+      const updatedAt = new Date(thread.updated_at);
+      if (now.getTime() - updatedAt.getTime() > ttlMs) {
+        this.threads.delete(threadId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.logger.log(
+        `Cleaned up ${cleanedCount} old thread(s). Active threads: ${this.threads.size}`,
+      );
+    }
   }
 
   /**
@@ -124,6 +174,11 @@ export class AgentService implements OnModuleInit {
         status: 'idle',
         values: {},
       });
+    } else {
+      // Update last accessed time
+      const thread = this.threads.get(threadId)!;
+      thread.updated_at = new Date().toISOString();
+      this.threads.set(threadId, thread);
     }
 
     // With MemorySaver checkpointer, the graph persists conversation history
@@ -144,13 +199,23 @@ export class AgentService implements OnModuleInit {
     yield this.formatSSE('metadata', { run_id: runId });
 
     let lastState: Record<string, unknown> = {};
+    const streamConfig = { ...(config ?? {}) };
+    const parsedRecursionLimit = Number(streamConfig.recursionLimit);
+    const recursionLimit = Number.isFinite(parsedRecursionLimit)
+      ? Math.min(
+          MAX_RECURSION_LIMIT,
+          Math.max(MIN_RECURSION_LIMIT, Math.floor(parsedRecursionLimit)),
+        )
+      : DEFAULT_RECURSION_LIMIT;
+    delete streamConfig.recursionLimit;
 
     try {
       const eventStream = this.graph.streamEvents(
         { messages },
         {
           version: 'v2',
-          configurable: { thread_id: threadId, ...config },
+          recursionLimit,
+          configurable: { thread_id: threadId, ...streamConfig },
         },
       );
 
@@ -169,8 +234,10 @@ export class AgentService implements OnModuleInit {
         }
       }
 
+      const postProcessedState = await this.postProcessFinalState(lastState);
+
       // Emit final values with messages converted to simple format
-      const convertedState = this.convertStateMessages(lastState);
+      const convertedState = this.convertStateMessages(postProcessedState);
       yield this.formatSSE('values', convertedState);
 
       // Update stored thread state
@@ -180,16 +247,325 @@ export class AgentService implements OnModuleInit {
         thread.updated_at = new Date().toISOString();
       }
     } catch (error) {
-      this.logger.error(
-        `Agent run failed: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      yield this.formatSSE('error', {
-        message: (error as Error).message,
-      });
+      const err = error as Error;
+      const isRecursionError = this.isGraphRecursionError(error);
+      const isParentCommandError =
+        err?.name === 'ParentCommand' ||
+        err?.message?.includes('ParentCommand') ||
+        err?.stack?.includes('ParentCommand');
+
+      if (isRecursionError) {
+        this.logger.warn(
+          `Graph recursion limit reached (${recursionLimit}); retrying with invoke fallback`,
+        );
+
+        try {
+          const retryRecursionLimit = Math.min(
+            MAX_RECURSION_LIMIT,
+            Math.max(recursionLimit, DEFAULT_RECURSION_LIMIT),
+          );
+          const fallbackState = (await this.graph.invoke(
+            { messages },
+            {
+              recursionLimit: retryRecursionLimit,
+              configurable: { thread_id: threadId, ...streamConfig },
+            },
+          )) as Record<string, unknown>;
+
+          const postProcessedState =
+            await this.postProcessFinalState(fallbackState);
+          const convertedState = this.convertStateMessages(postProcessedState);
+          yield this.formatSSE('values', convertedState);
+
+          const thread = this.threads.get(threadId);
+          if (thread) {
+            thread.values = convertedState;
+            thread.updated_at = new Date().toISOString();
+          }
+        } catch (fallbackError) {
+          const fallbackErr = fallbackError as Error;
+          this.logger.error(
+            `Recursion fallback failed: ${fallbackErr.message}`,
+            fallbackErr.stack,
+          );
+
+          const gracefulState = {
+            messages: [
+              {
+                type: 'ai',
+                content:
+                  'ขออภัย ระบบใช้เวลาคิดนานเกินไปสำหรับคำขอนี้ กรุณาลองปรับคำขอให้สั้นลงหรือระบุเป้าหมายให้ชัดขึ้น แล้วลองใหม่อีกครั้ง',
+              },
+            ],
+            meta: {
+              error: 'GRAPH_RECURSION_LIMIT',
+            },
+          };
+          const convertedState = this.convertStateMessages(gracefulState);
+          yield this.formatSSE('values', convertedState);
+
+          const thread = this.threads.get(threadId);
+          if (thread) {
+            thread.values = convertedState;
+            thread.updated_at = new Date().toISOString();
+          }
+        }
+      } else if (isParentCommandError) {
+        this.logger.warn(
+          'streamEvents hit ParentCommand control-flow error; retrying with invoke fallback',
+        );
+
+        try {
+          const fallbackState = (await this.graph.invoke(
+            { messages },
+            {
+              recursionLimit,
+              configurable: { thread_id: threadId, ...streamConfig },
+            },
+          )) as Record<string, unknown>;
+
+          const postProcessedState =
+            await this.postProcessFinalState(fallbackState);
+          const convertedState = this.convertStateMessages(postProcessedState);
+          yield this.formatSSE('values', convertedState);
+
+          const thread = this.threads.get(threadId);
+          if (thread) {
+            thread.values = convertedState;
+            thread.updated_at = new Date().toISOString();
+          }
+        } catch (fallbackError) {
+          const fallbackErr = fallbackError as Error;
+          this.logger.error(
+            `Agent fallback failed: ${fallbackErr.message}`,
+            fallbackErr.stack,
+          );
+          yield this.formatSSE('error', {
+            message: fallbackErr.message,
+          });
+        }
+      } else {
+        this.logger.error(`Agent run failed: ${err.message}`, err.stack);
+        yield this.formatSSE('error', {
+          message: err.message,
+        });
+      }
     }
 
     yield this.formatSSE('end', {});
+  }
+
+  private isGraphRecursionError(error: unknown): boolean {
+    if (!error) return false;
+
+    const err = error as {
+      name?: string;
+      message?: string;
+      stack?: string;
+      cause?: unknown;
+      errors?: unknown;
+    };
+
+    const ownText = [err.name, err.message, err.stack]
+      .filter((part): part is string => typeof part === 'string')
+      .join(' ')
+      .toLowerCase();
+
+    if (
+      ownText.includes('recursion') ||
+      ownText.includes('graph_recursion_limit') ||
+      ownText.includes('graph recursion')
+    ) {
+      return true;
+    }
+
+    if (err.cause) {
+      return this.isGraphRecursionError(err.cause);
+    }
+
+    if (Array.isArray(err.errors)) {
+      return err.errors.some((nested) => this.isGraphRecursionError(nested));
+    }
+
+    return false;
+  }
+
+  private async postProcessFinalState(
+    state: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!Array.isArray(state.messages) || state.messages.length === 0) {
+      return state;
+    }
+
+    const messages = [...state.messages] as unknown[];
+    const validIds = collectValidPgIds(messages);
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const candidate = messages[i];
+      if (!candidate || typeof candidate !== 'object') continue;
+      const msg = candidate as Record<string, unknown>;
+      const type = this.detectMessageType(msg);
+      if (type !== 'ai' || typeof msg.content !== 'string') continue;
+
+      let content = msg.content;
+      const tripJsonFromHistory = this.findLatestTripJsonBlock(messages);
+      const hasTripJsonInFinal = this.hasTripJsonBlock(content);
+      if (!hasTripJsonInFinal && tripJsonFromHistory) {
+        content = `${tripJsonFromHistory}\n\n${content}`;
+      }
+      if (!content.includes('```json')) continue;
+
+      if (validIds.size > 0) {
+        content = stripFakeItems(content, validIds);
+      }
+
+      content = stripDistantItems(content);
+      content = await fixThumbnailsInResponse(
+        content,
+        this.lookupThumbnails.bind(this),
+      );
+
+      const validated = await this.applyDeepValidation(content);
+      msg.content = validated;
+      messages[i] = msg;
+      break;
+    }
+
+    return { ...state, messages };
+  }
+
+  private hasTripJsonBlock(text: string): boolean {
+    const regex = /```(?:json)?\s*\n([\s\S]*?)```/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed?.days)) {
+          return true;
+        }
+      } catch {
+        // Ignore invalid JSON blocks.
+      }
+    }
+    return false;
+  }
+
+  private findLatestTripJsonBlock(messages: unknown[]): string | null {
+    const regex = /```(?:json)?\s*\n([\s\S]*?)```/g;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const candidate = messages[i];
+      if (!candidate || typeof candidate !== 'object') continue;
+      const msg = candidate as Record<string, unknown>;
+      if (this.detectMessageType(msg) !== 'ai') continue;
+      if (typeof msg.content !== 'string' || !msg.content.includes('```json')) {
+        continue;
+      }
+
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(msg.content)) !== null) {
+        try {
+          const parsed = JSON.parse(match[1]);
+          if (Array.isArray(parsed?.days)) {
+            return `\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``;
+          }
+        } catch {
+          // Ignore invalid JSON blocks.
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private detectMessageType(msg: Record<string, unknown>): string {
+    if (!msg || typeof msg !== 'object') return '';
+
+    if (typeof msg.type === 'string') {
+      if (msg.type === 'constructor' && Array.isArray(msg.id)) {
+        const className = (msg.id as string[])[(msg.id as string[]).length - 1];
+        if (className === 'AIMessage' || className === 'AIMessageChunk') {
+          return 'ai';
+        }
+        if (className === 'HumanMessage') return 'human';
+        if (className === 'ToolMessage') return 'tool';
+        if (className === 'SystemMessage') return 'system';
+      }
+      return msg.type;
+    }
+
+    if (typeof (msg as { _getType?: () => string })._getType === 'function') {
+      try {
+        return (msg as { _getType: () => string })._getType();
+      } catch {
+        return '';
+      }
+    }
+
+    return '';
+  }
+
+  private async applyDeepValidation(content: string): Promise<string> {
+    const regex = /```(?:json)?\s*\n([\s\S]*?)```/g;
+    let result = content;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(content)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (!Array.isArray(parsed?.days)) continue;
+
+        const validation = await validateTripWithDeepAgent(parsed);
+        if (
+          validation?.isValid === false &&
+          validation.fixedTrip &&
+          Array.isArray(validation.fixedTrip.days)
+        ) {
+          // Restore lost fields from original parsed JSON to prevent deep agent from stripping them
+          const originalItemsMap = new Map();
+          for (const day of parsed.days || []) {
+            for (const item of day.items || []) {
+              if (item.pg_place_id) {
+                originalItemsMap.set(item.pg_place_id, item);
+              }
+            }
+          }
+
+          for (const day of validation.fixedTrip.days) {
+            if (!Array.isArray(day.items)) continue;
+            for (let i = 0; i < day.items.length; i++) {
+              const fixedItem = day.items[i];
+              if (
+                fixedItem.pg_place_id &&
+                originalItemsMap.has(fixedItem.pg_place_id)
+              ) {
+                day.items[i] = {
+                  ...originalItemsMap.get(fixedItem.pg_place_id),
+                  ...fixedItem,
+                };
+              }
+            }
+          }
+          const fixedBlock = `\`\`\`json\n${JSON.stringify(validation.fixedTrip, null, 2)}\n\`\`\``;
+          result = result.replace(match[0], fixedBlock);
+        }
+      } catch {
+        // Ignore parse errors and keep original content.
+      }
+    }
+
+    return result;
+  }
+
+  private async lookupThumbnails(
+    pgPlaceIds: number[],
+  ): Promise<Map<number, string>> {
+    const places = await this.placesService.findByIds(pgPlaceIds);
+    const map = new Map<number, string>();
+    for (const p of places) {
+      map.set(p.id, p.thumbnailUrl || '');
+    }
+    return map;
   }
 
   /**

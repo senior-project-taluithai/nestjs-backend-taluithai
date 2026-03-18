@@ -15,15 +15,24 @@ export class FavoritesService {
     private favPlacesRepo: Repository<UserFavoritePlace>,
     @InjectRepository(UserFavoriteEvent)
     private favEventsRepo: Repository<UserFavoriteEvent>,
-  ) { }
+  ) {}
 
-  async getFavoritePlaces(userId: string, paginationDto: PaginationDto): Promise<PaginatedResultDto<PlaceDto>> {
+  async getFavoritePlaces(
+    userId: string,
+    paginationDto: PaginationDto,
+  ): Promise<PaginatedResultDto<PlaceDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
     const safePage = page < 1 ? 1 : page;
     const safePageSize = pageSize < 1 ? 10 : pageSize;
     const [favorites, total] = await this.favPlacesRepo.findAndCount({
       where: { userId },
-      relations: ['place', 'place.province', 'place.placeCategories', 'place.placeCategories.category', 'place.images'],
+      relations: [
+        'place',
+        'place.province',
+        'place.placeCategories',
+        'place.placeCategories.category',
+        'place.images',
+      ],
       skip: (safePage - 1) * safePageSize,
       take: safePageSize,
     });
@@ -32,7 +41,8 @@ export class FavoritesService {
       const place = fav.place;
       return new PlaceDto({
         ...place,
-        categories: place.placeCategories?.map((pc) => pc.category.nameEn) || [],
+        categories:
+          place.placeCategories?.map((pc) => pc.category.nameEn) || [],
         imageUrls: place.images?.map((i) => i.url) || [],
       });
     });
@@ -45,13 +55,22 @@ export class FavoritesService {
     };
   }
 
-  async getFavoriteEvents(userId: string, paginationDto: PaginationDto): Promise<PaginatedResultDto<EventDto>> {
+  async getFavoriteEvents(
+    userId: string,
+    paginationDto: PaginationDto,
+  ): Promise<PaginatedResultDto<EventDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
     const safePage = page < 1 ? 1 : page;
     const safePageSize = pageSize < 1 ? 10 : pageSize;
     const [favorites, total] = await this.favEventsRepo.findAndCount({
       where: { userId },
-      relations: ['event', 'event.province', 'event.eventCategories', 'event.eventCategories.category', 'event.images'],
+      relations: [
+        'event',
+        'event.province',
+        'event.eventCategories',
+        'event.eventCategories.category',
+        'event.images',
+      ],
       skip: (safePage - 1) * safePageSize,
       take: safePageSize,
     });
@@ -60,7 +79,8 @@ export class FavoritesService {
       const event = fav.event;
       return new EventDto({
         ...event,
-        categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
+        categories:
+          event.eventCategories?.map((ec) => ec.category.nameEn) || [],
         imageUrls: event.images?.map((i) => i.url) || [],
       });
     });
@@ -115,12 +135,13 @@ export class FavoritesService {
   async getFavoritePlacesInProvinces(
     userId: string,
     provinceIds: number[],
-    paginationDto: PaginationDto
+    paginationDto: PaginationDto,
   ): Promise<PaginatedResultDto<PlaceDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
     const safePage = page < 1 ? 1 : page;
     const safePageSize = pageSize < 1 ? 10 : pageSize;
-    const query = this.favPlacesRepo.createQueryBuilder('fav')
+    const query = this.favPlacesRepo
+      .createQueryBuilder('fav')
       .leftJoinAndSelect('fav.place', 'place')
       .leftJoinAndSelect('place.province', 'province')
       .leftJoinAndSelect('place.placeCategories', 'placeCategories')
@@ -141,7 +162,8 @@ export class FavoritesService {
       const place = fav.place;
       return new PlaceDto({
         ...place,
-        categories: place.placeCategories?.map((pc) => pc.category.nameEn) || [],
+        categories:
+          place.placeCategories?.map((pc) => pc.category.nameEn) || [],
         imageUrls: place.images?.map((i) => i.url) || [],
       });
     });
@@ -159,12 +181,13 @@ export class FavoritesService {
     provinceIds: number[],
     paginationDto: PaginationDto,
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
   ): Promise<PaginatedResultDto<EventDto>> {
     const { page = 1, pageSize = 10 } = paginationDto;
     const safePage = page < 1 ? 1 : page;
     const safePageSize = pageSize < 1 ? 10 : pageSize;
-    const query = this.favEventsRepo.createQueryBuilder('fav')
+    const query = this.favEventsRepo
+      .createQueryBuilder('fav')
       .leftJoinAndSelect('fav.event', 'event')
       .leftJoinAndSelect('event.province', 'province')
       .leftJoinAndSelect('event.eventCategories', 'eventCategories')
@@ -193,7 +216,8 @@ export class FavoritesService {
       const event = fav.event;
       return new EventDto({
         ...event,
-        categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
+        categories:
+          event.eventCategories?.map((ec) => ec.category.nameEn) || [],
         imageUrls: event.images?.map((i) => i.url) || [],
       });
     });

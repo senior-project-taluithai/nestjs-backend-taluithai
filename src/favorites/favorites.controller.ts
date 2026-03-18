@@ -14,7 +14,12 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { PlaceDto } from '../places/dto/place.dto';
 import { EventDto } from '../events/dto/event.dto';
 import { FavoritesService } from './favorites.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 
 @ApiTags('Favorites')
@@ -27,14 +32,22 @@ export class FavoritesController {
 
   @Get('places')
   @ApiOperation({ summary: 'Get favorite places' })
-  @ApiResponse({ status: 200, description: 'Return paginated favorite places.', type: PaginatedResultDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Return paginated favorite places.',
+    type: PaginatedResultDto,
+  })
   getFavoritePlaces(@Req() req, @Query() paginationDto: PaginationDto) {
     return this.favoritesService.getFavoritePlaces(req.user.id, paginationDto);
   }
 
   @Get('events')
   @ApiOperation({ summary: 'Get favorite events' })
-  @ApiResponse({ status: 200, description: 'Return paginated favorite events.', type: PaginatedResultDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Return paginated favorite events.',
+    type: PaginatedResultDto,
+  })
   getFavoriteEvents(@Req() req, @Query() paginationDto: PaginationDto) {
     return this.favoritesService.getFavoriteEvents(req.user.id, paginationDto);
   }
@@ -57,7 +70,10 @@ export class FavoritesController {
   @ApiOperation({ summary: 'Check if place is saved' })
   @ApiResponse({ status: 200, description: 'Return saved status.' })
   async isPlaceSaved(@Req() req, @Param('id') placeId: string) {
-    const isSaved = await this.favoritesService.isPlaceSaved(req.user.id, +placeId);
+    const isSaved = await this.favoritesService.isPlaceSaved(
+      req.user.id,
+      +placeId,
+    );
     return { saved: isSaved };
   }
 
@@ -65,7 +81,10 @@ export class FavoritesController {
   @ApiOperation({ summary: 'Check if event is saved' })
   @ApiResponse({ status: 200, description: 'Return saved status.' })
   async isEventSaved(@Req() req, @Param('id') eventId: string) {
-    const isSaved = await this.favoritesService.isEventSaved(req.user.id, +eventId);
+    const isSaved = await this.favoritesService.isEventSaved(
+      req.user.id,
+      +eventId,
+    );
     return { saved: isSaved };
   }
 }

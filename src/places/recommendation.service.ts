@@ -69,16 +69,16 @@ export class RecommendationService implements OnModuleInit {
         );
       }
       if (preferredRegions.length > 0) {
-        url.searchParams.set(
-          'preferred_regions',
-          preferredRegions.join(','),
-        );
+        url.searchParams.set('preferred_regions', preferredRegions.join(','));
       }
       if (engagement) {
         url.searchParams.set('engagement_plays', String(engagement.plays));
         url.searchParams.set('engagement_likes', String(engagement.likes));
         url.searchParams.set('engagement_shares', String(engagement.shares));
-        url.searchParams.set('engagement_collects', String(engagement.collects));
+        url.searchParams.set(
+          'engagement_collects',
+          String(engagement.collects),
+        );
       }
 
       const res = await client.request<RecommendResponse>({

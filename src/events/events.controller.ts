@@ -12,7 +12,13 @@ import {
 } from '@nestjs/common';
 
 import { EventsService } from './events.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { EventDto, EventDetailDto } from './dto/event.dto';
 import { EventFilterDto } from './dto/event-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
@@ -22,7 +28,7 @@ import { EventReviewDto } from '../reviews/dto/review.dto';
 @ApiTags('Events')
 @Controller('events')
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) { }
+  constructor(private readonly eventsService: EventsService) {}
 
   @Get('recommended')
   @UseInterceptors(ClassSerializerInterceptor)
@@ -47,9 +53,16 @@ export class EventsController {
   @Post('explore')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Explore events with search and filter' })
-  @ApiResponse({ status: 200, description: 'Return filtered events with pagination.', type: PaginatedResultDto })
-  async explore(@Body() filter: EventFilterDto): Promise<PaginatedResultDto<EventDto>> {
-    const { data, page, last_page, total, avgRating, totalReviews } = await this.eventsService.findAll(filter);
+  @ApiResponse({
+    status: 200,
+    description: 'Return filtered events with pagination.',
+    type: PaginatedResultDto,
+  })
+  async explore(
+    @Body() filter: EventFilterDto,
+  ): Promise<PaginatedResultDto<EventDto>> {
+    const { data, page, last_page, total, avgRating, totalReviews } =
+      await this.eventsService.findAll(filter);
     return {
       data: data.map(
         (event) =>
@@ -69,7 +82,6 @@ export class EventsController {
     };
   }
 
-
   @Get('upcoming')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get upcoming events' })
@@ -80,6 +92,47 @@ export class EventsController {
   })
   async getUpcoming() {
     const events = await this.eventsService.getUpcoming();
+    return events.map(
+      (e) =>
+        new EventDto({
+          ...e,
+          categories: e.eventCategories?.map((ec) => ec.category.nameEn) || [],
+          imageUrls: e.images?.map((i) => i.url) || [],
+        }),
+    );
+  }
+
+  @Get('upcoming-by-provinces')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get upcoming events by provinces and date range' })
+  @ApiQuery({ name: 'province_ids', required: false, type: String })
+  @ApiQuery({ name: 'start_date', required: false, type: String })
+  @ApiQuery({ name: 'end_date', required: false, type: String })
+  @ApiResponse({
+    status: 200,
+    description: 'Return upcoming events filtered by provinces and date range.',
+    type: [EventDto],
+  })
+  async getUpcomingByProvinces(
+    @Query('province_ids') provinceIds?: string,
+    @Query('start_date') startDate?: string,
+    @Query('end_date') endDate?: string,
+  ) {
+    const ids = provinceIds
+      ? provinceIds
+          .split(',')
+          .map((id) => parseInt(id.trim()))
+          .filter((id) => !isNaN(id))
+      : [];
+    const start = startDate ? new Date(startDate) : undefined;
+    const end = endDate ? new Date(endDate) : undefined;
+
+    const events = await this.eventsService.getUpcomingByProvinces(
+      ids,
+      start,
+      end,
+      20,
+    );
     return events.map(
       (e) =>
         new EventDto({
@@ -120,13 +173,22 @@ export class EventsController {
   @ApiBearerAuth()
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Add a review to an event' })
-  @ApiResponse({ status: 201, description: 'Review created successfully.', type: EventReviewDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Review created successfully.',
+    type: EventReviewDto,
+  })
   async addReview(
     @Param('id') id: string,
     @Req() req: any,
     @Body() body: { comment: string; rating: number },
   ) {
-    const review = await this.eventsService.createReview(+id, req.user.id, body.comment, body.rating);
+    const review = await this.eventsService.createReview(
+      +id,
+      req.user.id,
+      body.comment,
+      body.rating,
+    );
     return new EventReviewDto({ ...review, user: req.user } as any);
   }
 }

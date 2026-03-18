@@ -12,11 +12,20 @@ export class ProvinceDto {
   name: string;
 
   @Expose({ name: 'name_en' })
-  @ApiProperty({ name: 'name_en', example: 'Chiang Mai', description: 'Province Name (English)' })
+  @ApiProperty({
+    name: 'name_en',
+    example: 'Chiang Mai',
+    description: 'Province Name (English)',
+  })
   nameEn: string;
 
   @Expose({ name: 'region_name' })
-  @ApiProperty({ name: 'region_name', enum: RegionEnum, example: RegionEnum.NORTH, description: 'Region Name' })
+  @ApiProperty({
+    name: 'region_name',
+    enum: RegionEnum,
+    example: RegionEnum.NORTH,
+    description: 'Region Name',
+  })
   regionName: RegionEnum;
 
   @Expose()
@@ -28,7 +37,11 @@ export class ProvinceDto {
   longitude: number;
 
   @Expose({ name: 'image_url' })
-  @ApiProperty({ name: 'image_url', example: 'https://example.com/chiangmai.jpg', description: 'Image URL' })
+  @ApiProperty({
+    name: 'image_url',
+    example: 'https://example.com/chiangmai.jpg',
+    description: 'Image URL',
+  })
   imageUrl: string;
 
   constructor(partial: Partial<ProvinceDto>) {

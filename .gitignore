@@ -30,3 +30,9 @@ vertex-sa-key.json
 
 # LangGraph API
 .langgraph_api
+
+.agent
+.opencode
+
+AGENTS.md
+.github

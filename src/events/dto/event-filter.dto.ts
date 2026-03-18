@@ -1,18 +1,28 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsString, IsArray, IsEnum, IsNumber, Min, IsInt } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsArray,
+  IsEnum,
+  IsNumber,
+  Min,
+  IsInt,
+} from 'class-validator';
 import { RegionEnum } from '../../provinces/entities/province.entity';
 
 export class EventFilterDto {
-  @ApiPropertyOptional({ description: 'Search term for event name or description' })
+  @ApiPropertyOptional({
+    description: 'Search term for event name or description',
+  })
   @IsOptional()
   @IsString()
   searchTerm?: string;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Filter by one or more regions',
     enum: RegionEnum,
-    isArray: true 
+    isArray: true,
   })
   @IsOptional()
   @IsEnum(RegionEnum, { each: true })
@@ -24,9 +34,9 @@ export class EventFilterDto {
   })
   regions?: RegionEnum[];
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Filter by one or more province IDs',
-    type: [Number]
+    type: [Number],
   })
   @IsOptional()
   @IsArray()
@@ -46,7 +56,11 @@ export class EventFilterDto {
   @Type(() => Number)
   categoryId?: number;
 
-  @ApiPropertyOptional({ description: 'Filter by minimum rating', minimum: 0, maximum: 5 })
+  @ApiPropertyOptional({
+    description: 'Filter by minimum rating',
+    minimum: 0,
+    maximum: 5,
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)

@@ -14,11 +14,19 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { TripsService } from './trips.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { TripDto, TripDetailDto, ProvinceBasicDto } from './dto/trip.dto';
 import { CreateTripDto, UpdateTripDto } from './dto/create-trip.dto';
-import { FilterTripPlacesDto, FilterTripEventsDto } from './dto/filter-trip-items.dto';
+import {
+  FilterTripPlacesDto,
+  FilterTripEventsDto,
+} from './dto/filter-trip-items.dto';
 import { Trip } from './entities/trip.entity';
 
 @ApiTags('Trips')
@@ -31,7 +39,11 @@ export class TripsController {
   @Get()
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get all my trips' })
-  @ApiResponse({ status: 200, description: 'Return all trips.', type: [TripDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'Return all trips.',
+    type: [TripDto],
+  })
   async findAll(@Req() req) {
     const trips = await this.tripsService.findAll(req.user.id);
     return trips.map((trip) => this.mapToTripDto(trip));
@@ -40,7 +52,11 @@ export class TripsController {
   @Get(':id')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get a trip' })
-  @ApiResponse({ status: 200, description: 'Return trip detail.', type: TripDetailDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Return trip detail.',
+    type: TripDetailDto,
+  })
   async findOne(@Req() req, @Param('id') id: string) {
     const trip = await this.tripsService.findOne(+id, req.user.id);
     if (!trip) return null;
@@ -70,7 +86,11 @@ export class TripsController {
     @Body(new ValidationPipe({ transform: true, whitelist: true }))
     updateTripDto: UpdateTripDto,
   ) {
-    const trip = await this.tripsService.update(+id, req.user.id, updateTripDto);
+    const trip = await this.tripsService.update(
+      +id,
+      req.user.id,
+      updateTripDto,
+    );
     return trip ? this.mapToTripDto(trip) : null;
   }
 
@@ -85,7 +105,10 @@ export class TripsController {
   @Get(':id/recommendations/places')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get recommended places for a trip' })
-  @ApiResponse({ status: 200, description: 'Return recommended places filtered by trip provinces.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return recommended places filtered by trip provinces.',
+  })
   async getRecommendedPlaces(
     @Req() req,
     @Param('id') id: string,
@@ -103,7 +126,10 @@ export class TripsController {
   @Get(':id/recommendations/events')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get recommended events for a trip' })
-  @ApiResponse({ status: 200, description: 'Return recommended events filtered by trip provinces.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return recommended events filtered by trip provinces.',
+  })
   async getRecommendedEvents(
     @Req() req,
     @Param('id') id: string,
@@ -122,8 +148,13 @@ export class TripsController {
 
   @Post(':id/places')
   @UseInterceptors(ClassSerializerInterceptor)
-  @ApiOperation({ summary: 'Get all places in trip provinces with search and filters' })
-  @ApiResponse({ status: 200, description: 'Return places from trip provinces.' })
+  @ApiOperation({
+    summary: 'Get all places in trip provinces with search and filters',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Return places from trip provinces.',
+  })
   async getPlacesInTripProvinces(
     @Req() req,
     @Param('id') id: string,
@@ -145,8 +176,14 @@ export class TripsController {
 
   @Post(':id/events')
   @UseInterceptors(ClassSerializerInterceptor)
-  @ApiOperation({ summary: 'Get all events in trip provinces with search and filters, filtered by trip dates' })
-  @ApiResponse({ status: 200, description: 'Return events from trip provinces and dates.' })
+  @ApiOperation({
+    summary:
+      'Get all events in trip provinces with search and filters, filtered by trip dates',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Return events from trip provinces and dates.',
+  })
   async getEventsInTripProvinces(
     @Req() req,
     @Param('id') id: string,
@@ -168,7 +205,10 @@ export class TripsController {
   @Get(':id/saved')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get saved place/event in trip provinces' })
-  @ApiResponse({ status: 200, description: 'Return saved items from trip provinces.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return saved items from trip provinces.',
+  })
   async getSavedItemsForTrip(
     @Req() req,
     @Param('id') id: string,
@@ -270,12 +310,16 @@ export class TripsController {
       userId: trip.userId,
       startDate: trip.startDate,
       endDate: trip.endDate,
-      provinces: trip.provinces?.map(p => new ProvinceBasicDto({
-        id: p.id,
-        name: p.name,
-        name_en: p.nameEn,
-        image_url: p.imageUrl,
-      })) || [],
+      provinces:
+        trip.provinces?.map(
+          (p) =>
+            new ProvinceBasicDto({
+              id: p.id,
+              name: p.name,
+              name_en: p.nameEn,
+              image_url: p.imageUrl,
+            }),
+        ) || [],
     });
   }
 
@@ -285,12 +329,16 @@ export class TripsController {
       userId: trip.userId,
       startDate: trip.startDate,
       endDate: trip.endDate,
-      provinces: trip.provinces?.map(p => new ProvinceBasicDto({
-        id: p.id,
-        name: p.name,
-        name_en: p.nameEn,
-        image_url: p.imageUrl,
-      })) || [],
+      provinces:
+        trip.provinces?.map(
+          (p) =>
+            new ProvinceBasicDto({
+              id: p.id,
+              name: p.name,
+              name_en: p.nameEn,
+              image_url: p.imageUrl,
+            }),
+        ) || [],
       tripDays: trip.tripDays,
     });
   }

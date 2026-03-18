@@ -78,7 +78,9 @@ export class Place {
   @Expose()
   images: PlaceImage[];
 
-  @OneToMany(() => PlaceCategory, (placeCategory) => placeCategory.place, { cascade: true })
+  @OneToMany(() => PlaceCategory, (placeCategory) => placeCategory.place, {
+    cascade: true,
+  })
   @Expose({ name: 'place_categories' })
   placeCategories: PlaceCategory[];
 

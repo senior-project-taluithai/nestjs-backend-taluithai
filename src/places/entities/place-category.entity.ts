@@ -9,7 +9,9 @@ export class PlaceCategory {
   @Expose()
   id: number;
 
-  @ManyToOne(() => Place, (place) => place.placeCategories, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Place, (place) => place.placeCategories, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'place_id' })
   place: Place;
 

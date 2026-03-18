@@ -1,6 +1,15 @@
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod/v4';
 import { ToolsService } from '../../tools/tools.service';
+import { cachedSearch, hashString } from '../utils/redis-cache';
+
+const TTL_SECONDS = {
+  semantic: 60 * 60,
+  keyword: 60 * 60,
+  nearby: 30 * 60,
+  route: 24 * 60 * 60,
+  web: 30 * 60,
+};
 
 /**
  * Creates LangChain tool wrappers around ToolsService.
@@ -26,21 +35,24 @@ export function createSearchTools(toolsService: ToolsService) {
     }),
     func: async (input: any) => {
       const { query, limit } = input;
-      const results = await toolsService.vectorSearch(query, limit ?? 10);
-      const mapped = results.slice(0, limit ?? 10).map((r: any) => ({
-        pg_place_id: r.pg_place_id,
-        title: r.title,
-        address: r.address,
-        category: r.category,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        review_rating: r.review_rating,
-        thumbnail: r.thumbnail,
-        score: r.score,
-        source_collection: r.source_collection,
-        province_name: r.province_name,
-      }));
-      return JSON.stringify({ results: mapped });
+      const cacheKey = `search:semantic:${hashString(`${query}:${limit ?? 10}`)}`;
+      return cachedSearch(cacheKey, TTL_SECONDS.semantic, async () => {
+        const results = await toolsService.vectorSearch(query, limit ?? 10);
+        const mapped = results.slice(0, limit ?? 10).map((r: any) => ({
+          pg_place_id: r.pg_place_id,
+          title: r.title,
+          address: r.address,
+          category: r.category,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          review_rating: r.review_rating,
+          thumbnail: r.thumbnail,
+          score: r.score,
+          source_collection: r.source_collection,
+          province_name: r.province_name,
+        }));
+        return JSON.stringify({ results: mapped });
+      });
     },
   });
 
@@ -68,12 +80,17 @@ export function createSearchTools(toolsService: ToolsService) {
       const colArray = collections
         ? collections.split(',').map((c: string) => c.trim())
         : undefined;
-      const results = await toolsService.searchPlaces({
-        query,
-        collections: colArray,
-        limit: limit ?? 10,
+      const cacheKey = `search:keyword:${hashString(
+        `${query}:${collections ?? ''}:${limit ?? 10}`,
+      )}`;
+      return cachedSearch(cacheKey, TTL_SECONDS.keyword, async () => {
+        const results = await toolsService.searchPlaces({
+          query,
+          collections: colArray,
+          limit: limit ?? 10,
+        });
+        return JSON.stringify(results);
       });
-      return JSON.stringify(results);
     },
   });
 
@@ -123,28 +140,31 @@ export function createSearchTools(toolsService: ToolsService) {
       const colArray = collections
         ? collections.split(',').map((c: string) => c.trim())
         : undefined;
-      const results = await toolsService.nearbySearch({
-        latitude,
-        longitude,
-        radiusKm: radius_km ?? 5,
-        collections: colArray,
-        limit: limit ?? 10,
+      const cacheKey = `search:nearby:${latitude.toFixed(4)}:${longitude.toFixed(4)}:${radius_km ?? 5}:${collections ?? ''}:${limit ?? 10}`;
+      return cachedSearch(cacheKey, TTL_SECONDS.nearby, async () => {
+        const results = await toolsService.nearbySearch({
+          latitude,
+          longitude,
+          radiusKm: radius_km ?? 5,
+          collections: colArray,
+          limit: limit ?? 10,
+        });
+        // Ensure pg_place_id and province_name are visible in tool output
+        const mapped = results.map((r: any) => ({
+          pg_place_id: r.pg_place_id,
+          title: r.title,
+          address: r.address,
+          category: r.category,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          review_rating: r.review_rating,
+          thumbnail: r.thumbnail,
+          distance_km: r.distance_km,
+          source_collection: r.source_collection,
+          province_name: r.province_name,
+        }));
+        return JSON.stringify(mapped);
       });
-      // Ensure pg_place_id and province_name are visible in tool output
-      const mapped = (results as any[]).map((r: any) => ({
-        pg_place_id: r.pg_place_id,
-        title: r.title,
-        address: r.address,
-        category: r.category,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        review_rating: r.review_rating,
-        thumbnail: r.thumbnail,
-        distance_km: r.distance_km,
-        source_collection: r.source_collection,
-        province_name: r.province_name,
-      }));
-      return JSON.stringify(mapped);
     },
   });
 
@@ -166,11 +186,14 @@ export function createSearchTools(toolsService: ToolsService) {
     }),
     func: async (input: any) => {
       const { waypoints } = input;
-      const result = await toolsService.calculateRoute({ waypoints });
-      return JSON.stringify({
-        distance_km: result.distance_km,
-        duration_minutes: result.duration_minutes,
-        legs: result.legs,
+      const cacheKey = `route:${hashString(JSON.stringify(waypoints))}`;
+      return cachedSearch(cacheKey, TTL_SECONDS.route, async () => {
+        const result = await toolsService.calculateRoute({ waypoints });
+        return JSON.stringify({
+          distance_km: result.distance_km,
+          duration_minutes: result.duration_minutes,
+          legs: result.legs,
+        });
       });
     },
   });
@@ -190,34 +213,37 @@ export function createSearchTools(toolsService: ToolsService) {
       const apiKey = process.env.TAVILY_API_KEY;
       if (!apiKey) return JSON.stringify({ error: 'TAVILY_API_KEY not set' });
 
-      try {
-        const res = await fetch('https://api.tavily.com/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            api_key: apiKey,
-            query,
-            max_results: 5,
-            include_answer: true,
-            search_depth: 'basic',
-          }),
-        });
-        const data = (await res.json()) as {
-          answer?: string;
-          results?: { title: string; url: string; content: string }[];
-        };
-        const answer = data.answer || '';
-        const results = (data.results || []).map((r) => ({
-          title: r.title,
-          url: r.url,
-          snippet: r.content?.slice(0, 300),
-        }));
-        return JSON.stringify({ answer, results });
-      } catch (err) {
-        return JSON.stringify({
-          error: `Web search failed: ${(err as Error).message}`,
-        });
-      }
+      const cacheKey = `web:${hashString(query)}`;
+      return cachedSearch(cacheKey, TTL_SECONDS.web, async () => {
+        try {
+          const res = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: apiKey,
+              query,
+              max_results: 5,
+              include_answer: true,
+              search_depth: 'basic',
+            }),
+          });
+          const data = (await res.json()) as {
+            answer?: string;
+            results?: { title: string; url: string; content: string }[];
+          };
+          const answer = data.answer || '';
+          const results = (data.results || []).map((r) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.content?.slice(0, 300),
+          }));
+          return JSON.stringify({ answer, results });
+        } catch (err) {
+          return JSON.stringify({
+            error: `Web search failed: ${(err as Error).message}`,
+          });
+        }
+      });
     },
   });
 

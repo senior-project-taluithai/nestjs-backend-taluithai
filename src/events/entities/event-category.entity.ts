@@ -9,7 +9,9 @@ export class EventCategory {
   @Expose()
   id: number;
 
-  @ManyToOne(() => Event, (event) => event.eventCategories, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Event, (event) => event.eventCategories, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'event_id' })
   event: Event;
 

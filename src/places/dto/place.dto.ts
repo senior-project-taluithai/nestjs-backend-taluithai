@@ -21,7 +21,10 @@ export class PlaceDto {
   detail: string;
 
   @Expose({ name: 'detail_en' })
-  @ApiProperty({ name: 'detail_en', example: 'English description of the place' })
+  @ApiProperty({
+    name: 'detail_en',
+    example: 'English description of the place',
+  })
   detailEn: string;
 
   @Expose({ name: 'province_id' })
@@ -37,7 +40,11 @@ export class PlaceDto {
   longitude: number;
 
   @Expose({ name: 'best_season' })
-  @ApiProperty({ name: 'best_season', enum: BestSeasonEnum, example: BestSeasonEnum.ALL_YEAR })
+  @ApiProperty({
+    name: 'best_season',
+    enum: BestSeasonEnum,
+    example: BestSeasonEnum.ALL_YEAR,
+  })
   bestSeason: BestSeasonEnum;
 
   @Expose()
@@ -45,11 +52,18 @@ export class PlaceDto {
   rating: number;
 
   @Expose({ name: 'thumbnail_url' })
-  @ApiProperty({ name: 'thumbnail_url', example: 'https://example.com/thumb.jpg' })
+  @ApiProperty({
+    name: 'thumbnail_url',
+    example: 'https://example.com/thumb.jpg',
+  })
   thumbnailUrl: string;
 
   @Expose({ name: 'image_urls' })
-  @ApiProperty({ name: 'image_urls', type: [String], example: ['https://example.com/img1.jpg'] })
+  @ApiProperty({
+    name: 'image_urls',
+    type: [String],
+    example: ['https://example.com/img1.jpg'],
+  })
   imageUrls: string[];
 
   @Expose()

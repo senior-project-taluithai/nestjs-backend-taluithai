@@ -13,7 +13,7 @@ export class EventsService {
     private eventsRepository: Repository<Event>,
     @InjectRepository(EventReview)
     private reviewsRepository: Repository<EventReview>,
-  ) { }
+  ) {}
 
   async findAll(filter: EventFilterDto): Promise<PaginatedResultDto<Event>> {
     const {
@@ -67,7 +67,7 @@ export class EventsService {
         '(event.startDate <= :endDate AND event.endDate >= :startDate)',
         {
           startDate: new Date(filter.startDate),
-          endDate: new Date(filter.endDate)
+          endDate: new Date(filter.endDate),
         },
       );
     }
@@ -77,12 +77,16 @@ export class EventsService {
 
     // Sorting
     if (filter.orderField) {
-      const field = filter.orderField === 'name_en' ? 'event.nameEn' :
-        filter.orderField === 'reviewCount' ? 'reviewCount' :
-          `event.${filter.orderField}`;
+      const field =
+        filter.orderField === 'name_en'
+          ? 'event.nameEn'
+          : filter.orderField === 'reviewCount'
+            ? 'reviewCount'
+            : `event.${filter.orderField}`;
 
       if (filter.orderField === 'reviewCount') {
-        query.leftJoin('event.reviews', 'review_count_join')
+        query
+          .leftJoin('event.reviews', 'review_count_join')
           .addSelect('COUNT(review_count_join.id)', 'review_count')
           .groupBy('event.id')
           .addGroupBy('province.id')
@@ -126,7 +130,14 @@ export class EventsService {
   async findOne(id: number): Promise<Event | null> {
     return this.eventsRepository.findOne({
       where: { id },
-      relations: ['province', 'eventCategories', 'eventCategories.category', 'reviews', 'reviews.user', 'images'],
+      relations: [
+        'province',
+        'eventCategories',
+        'eventCategories.category',
+        'reviews',
+        'reviews.user',
+        'images',
+      ],
     });
   }
 
@@ -134,13 +145,20 @@ export class EventsService {
     if (!ids || ids.length === 0) return [];
     return this.eventsRepository.find({
       where: { id: In(ids) },
-      relations: ['province', 'eventCategories', 'eventCategories.category', 'images'],
+      relations: [
+        'province',
+        'eventCategories',
+        'eventCategories.category',
+        'images',
+      ],
     });
   }
 
-  async create(event: Partial<Event> & { imageUrls?: string[] }): Promise<Event> {
+  async create(
+    event: Partial<Event> & { imageUrls?: string[] },
+  ): Promise<Event> {
     if (event.imageUrls && Array.isArray(event.imageUrls)) {
-      event.images = event.imageUrls.map((url) => ({ url } as any));
+      event.images = event.imageUrls.map((url) => ({ url }) as any);
       delete event.imageUrls;
     }
     const newEvent = this.eventsRepository.create(event);
@@ -151,12 +169,18 @@ export class EventsService {
     // Mock: just take first 10
     return this.eventsRepository.find({
       take: 10,
-      relations: ['province', 'eventCategories', 'eventCategories.category', 'images'],
+      relations: [
+        'province',
+        'eventCategories',
+        'eventCategories.category',
+        'images',
+      ],
     });
   }
 
   async getUpcoming(): Promise<Event[]> {
-    return this.eventsRepository.createQueryBuilder('event')
+    return this.eventsRepository
+      .createQueryBuilder('event')
       .leftJoinAndSelect('event.province', 'province')
       .leftJoinAndSelect('event.eventCategories', 'eventCategories')
       .leftJoinAndSelect('event.images', 'images')
@@ -166,7 +190,47 @@ export class EventsService {
       .getMany();
   }
 
-  async createReview(eventId: number, userId: string, comment: string, rating: number): Promise<EventReview> {
+  async getUpcomingByProvinces(
+    provinceIds: number[],
+    startDate?: Date,
+    endDate?: Date,
+    limit: number = 10,
+  ): Promise<Event[]> {
+    const query = this.eventsRepository
+      .createQueryBuilder('event')
+      .leftJoinAndSelect('event.province', 'province')
+      .leftJoinAndSelect('event.eventCategories', 'eventCategories')
+      .leftJoinAndSelect('event.images', 'images');
+
+    // Filter by upcoming events
+    query.where('event.startDate > :now', { now: new Date() });
+
+    // Filter by provinces if provided
+    if (provinceIds && provinceIds.length > 0) {
+      query.andWhere('event.provinceId IN (:...provinceIds)', { provinceIds });
+    }
+
+    // Filter by date range if provided
+    if (startDate && endDate) {
+      // Event overlaps with trip date range
+      query.andWhere(
+        '(event.startDate <= :tripEndDate AND event.endDate >= :tripStartDate)',
+        {
+          tripStartDate: startDate,
+          tripEndDate: endDate,
+        },
+      );
+    }
+
+    return query.orderBy('event.startDate', 'ASC').take(limit).getMany();
+  }
+
+  async createReview(
+    eventId: number,
+    userId: string,
+    comment: string,
+    rating: number,
+  ): Promise<EventReview> {
     const review = this.reviewsRepository.create({
       eventId,
       userId,

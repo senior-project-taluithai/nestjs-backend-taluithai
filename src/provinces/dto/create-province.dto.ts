@@ -7,11 +7,20 @@ export class CreateProvinceDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ name: 'name_en', example: 'Chiang Mai', description: 'Province Name (English)' })
+  @ApiProperty({
+    name: 'name_en',
+    example: 'Chiang Mai',
+    description: 'Province Name (English)',
+  })
   @IsString()
   nameEn: string;
 
-  @ApiProperty({ name: 'region_name', enum: RegionEnum, example: RegionEnum.NORTH, description: 'Region Name' })
+  @ApiProperty({
+    name: 'region_name',
+    enum: RegionEnum,
+    example: RegionEnum.NORTH,
+    description: 'Region Name',
+  })
   @IsEnum(RegionEnum)
   regionName: RegionEnum;
 
@@ -23,7 +32,11 @@ export class CreateProvinceDto {
   @IsNumber()
   longitude: number;
 
-  @ApiProperty({ name: 'image_url', example: 'https://example.com/chiangmai.jpg', description: 'Image URL' })
+  @ApiProperty({
+    name: 'image_url',
+    example: 'https://example.com/chiangmai.jpg',
+    description: 'Image URL',
+  })
   @IsUrl()
   imageUrl: string;
 }

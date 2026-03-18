@@ -11,7 +11,6 @@ import { EventReview } from './event-review.entity';
 import { EventImage } from './event-image.entity';
 import { EventCategory } from './event-category.entity';
 
-
 import { Expose } from 'class-transformer';
 
 @Entity('events')
@@ -73,7 +72,9 @@ export class Event {
   @OneToMany(() => EventImage, (image) => image.event, { cascade: true })
   images: EventImage[];
 
-  @OneToMany(() => EventCategory, (eventCategory) => eventCategory.event, { cascade: true })
+  @OneToMany(() => EventCategory, (eventCategory) => eventCategory.event, {
+    cascade: true,
+  })
   @Expose({ name: 'event_categories' })
   eventCategories: EventCategory[];
 

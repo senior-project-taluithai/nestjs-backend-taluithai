@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Like } from 'typeorm';
 import { Trip, TripDay, TripItem } from './entities/trip.entity';
@@ -11,7 +15,11 @@ import { FavoritesService } from '../favorites/favorites.service';
 import { RecommendationService } from '../places/recommendation.service';
 import { UsersService } from '../users/users.service';
 import { InteractionsService } from '../interactions/interactions.service';
-import { CreateTripDayItemDto, UpdateTripDayItemDto, ReorderTripDayItemsDto } from './dto/trip-day-item.dto';
+import {
+  CreateTripDayItemDto,
+  UpdateTripDayItemDto,
+  ReorderTripDayItemsDto,
+} from './dto/trip-day-item.dto';
 
 @Injectable()
 export class TripsService {
@@ -28,7 +36,7 @@ export class TripsService {
     private recommendationService: RecommendationService,
     private usersService: UsersService,
     private interactionsService: InteractionsService,
-  ) { }
+  ) {}
 
   async findAll(userId: string): Promise<Trip[]> {
     return this.tripsRepository.find({
@@ -51,24 +59,30 @@ export class TripsService {
     const eventIds: number[] = [];
 
     // Collect all IDs
-    trip.tripDays.forEach(day => {
-      day.items.forEach(item => {
+    trip.tripDays.forEach((day) => {
+      day.items.forEach((item) => {
         if (item.place_id) placeIds.push(item.place_id);
         if (item.event_id) eventIds.push(item.event_id);
       });
     });
 
     // Fetch details
-    const places = placeIds.length > 0 ? await this.placesService.findByIds([...new Set(placeIds)]) : [];
-    const events = eventIds.length > 0 ? await this.eventsService.findByIds([...new Set(eventIds)]) : [];
+    const places =
+      placeIds.length > 0
+        ? await this.placesService.findByIds([...new Set(placeIds)])
+        : [];
+    const events =
+      eventIds.length > 0
+        ? await this.eventsService.findByIds([...new Set(eventIds)])
+        : [];
 
     // Create maps for O(1) lookup
-    const placeMap = new Map(places.map(p => [p.id, p]));
-    const eventMap = new Map(events.map(e => [e.id, e]));
+    const placeMap = new Map(places.map((p) => [p.id, p]));
+    const eventMap = new Map(events.map((e) => [e.id, e]));
 
     // Attach details to items
-    trip.tripDays.forEach(day => {
-      day.items.forEach(item => {
+    trip.tripDays.forEach((day) => {
+      day.items.forEach((item) => {
         if (item.place_id) {
           item.place = placeMap.get(item.place_id);
         }
@@ -97,6 +111,15 @@ export class TripsService {
       createTripDto.end_date,
     );
 
+    // Recalculate budget total to ensure consistency
+    const tripBudget = createTripDto.budget;
+    if (tripBudget && Array.isArray(tripBudget.categories)) {
+      tripBudget.total = tripBudget.categories.reduce(
+        (acc: number, cat: any) => acc + (Number(cat.allocated) || 0),
+        0,
+      );
+    }
+
     // Create trip
     const newTrip = this.tripsRepository.create({
       userId,
@@ -106,6 +129,7 @@ export class TripsService {
       status: createTripDto.status,
       provinces,
       tripDays,
+      budget: tripBudget,
     });
 
     return this.tripsRepository.save(newTrip);
@@ -135,6 +159,48 @@ export class TripsService {
     // Update basic fields
     if (updateTripDto.name) existing.name = updateTripDto.name;
     if (updateTripDto.status) existing.status = updateTripDto.status;
+    if (updateTripDto.budget !== undefined) {
+      const budgetData = updateTripDto.budget;
+      if (budgetData) {
+        // Auto-calculate total from allocation
+        if (Array.isArray(budgetData.categories)) {
+          budgetData.total = budgetData.categories.reduce(
+            (acc: number, cat: any) => acc + (Number(cat.allocated) || 0),
+            0,
+          );
+        }
+
+        // Auto-calculate spent amounts if expenses are present
+        if (Array.isArray(budgetData.expenses)) {
+          // Reset spent counters
+          if (Array.isArray(budgetData.categories)) {
+            budgetData.categories.forEach((c: any) => (c.spent = 0));
+          }
+          if (Array.isArray(budgetData.dailyBudgets)) {
+            budgetData.dailyBudgets.forEach((d: any) => (d.spent = 0));
+          }
+
+          // Accumulate from expenses
+          budgetData.expenses.forEach((exp: any) => {
+            const amount = Number(exp.amount) || 0;
+
+            if (Array.isArray(budgetData.categories)) {
+              const cat = budgetData.categories.find(
+                (c: any) => c.id === exp.categoryId,
+              );
+              if (cat) cat.spent = (cat.spent || 0) + amount;
+            }
+            if (Array.isArray(budgetData.dailyBudgets)) {
+              const dayObj = budgetData.dailyBudgets.find(
+                (d: any) => d.day === exp.day,
+              );
+              if (dayObj) dayObj.spent = (dayObj.spent || 0) + amount;
+            }
+          });
+        }
+      }
+      existing.budget = budgetData;
+    }
 
     // Update dates and regenerate trip days if dates changed
     // Update dates and regenerate trip days if dates changed
@@ -150,7 +216,11 @@ export class TripsService {
       existing.endDate = newEndDate;
 
       // Smart update of trip days
-      const daysDiff = Math.ceil((newEndDate.getTime() - newStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      const daysDiff =
+        Math.ceil(
+          (newEndDate.getTime() - newStartDate.getTime()) /
+            (1000 * 60 * 60 * 24),
+        ) + 1;
 
       // Ensure existing days are sorted
       existing.tripDays.sort((a, b) => a.dayNumber - b.dayNumber);
@@ -159,7 +229,7 @@ export class TripsService {
       const currentDays = [...existing.tripDays];
       const newTripDays: TripDay[] = [];
 
-      let currentDate = new Date(newStartDate);
+      const currentDate = new Date(newStartDate);
 
       for (let i = 0; i < daysDiff; i++) {
         let day: TripDay;
@@ -190,7 +260,7 @@ export class TripsService {
         await this.tripDaysRepository.remove(daysToRemove);
       }
 
-      // Replace the array. 
+      // Replace the array.
       existing.tripDays = newTripDays;
     }
 
@@ -206,7 +276,7 @@ export class TripsService {
     const end = new Date(endDate);
     const days: TripDay[] = [];
 
-    let currentDate = new Date(start);
+    const currentDate = new Date(start);
     let dayNumber = 1;
 
     while (currentDate <= end) {
@@ -282,16 +352,22 @@ export class TripsService {
 
     if (placeIds.length === 0) {
       // Fallback: province-filtered top-rated places
-      return this.getRecommendedPlacesFallback(provinceIds, existingPlaceIds, page, limit);
+      return this.getRecommendedPlacesFallback(
+        provinceIds,
+        existingPlaceIds,
+        page,
+        limit,
+      );
     }
 
     // Filter: within trip provinces & not already in trip
     const filteredIds = placeIds.filter((id) => !existingPlaceIds.has(id));
 
     // Fetch full Place objects
-    const places = filteredIds.length > 0
-      ? await this.placesService.findByIds(filteredIds)
-      : [];
+    const places =
+      filteredIds.length > 0
+        ? await this.placesService.findByIds(filteredIds)
+        : [];
 
     // Keep only places in trip provinces & preserve recommendation order
     const idOrder = new Map(filteredIds.map((id, i) => [id, i]));
@@ -386,7 +462,9 @@ export class TripsService {
 
     // Filter by specific provinces if provided, but must be within trip provinces
     if (provinceIds && provinceIds.length > 0) {
-      targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
+      targetProvinceIds = targetProvinceIds.filter((id) =>
+        provinceIds.includes(id),
+      );
     }
 
     if (targetProvinceIds.length === 0) {
@@ -394,8 +472,8 @@ export class TripsService {
         data: [],
         page,
         last_page: 1,
-        total: 0
-      }
+        total: 0,
+      };
     }
 
     return this.placesService.findAll({
@@ -405,7 +483,7 @@ export class TripsService {
       categoryId: category ? parseInt(category) : undefined,
       provinces: targetProvinceIds,
       minRating,
-      bestSeason: bestSeason as BestSeasonEnum[]
+      bestSeason: bestSeason as BestSeasonEnum[],
     });
   }
 
@@ -428,7 +506,9 @@ export class TripsService {
 
     // Filter by specific provinces if provided, but must be within trip provinces
     if (provinceIds && provinceIds.length > 0) {
-      targetProvinceIds = targetProvinceIds.filter(id => provinceIds.includes(id));
+      targetProvinceIds = targetProvinceIds.filter((id) =>
+        provinceIds.includes(id),
+      );
     }
 
     if (targetProvinceIds.length === 0) {
@@ -436,8 +516,8 @@ export class TripsService {
         data: [],
         page,
         last_page: 1,
-        total: 0
-      }
+        total: 0,
+      };
     }
 
     return this.eventsService.findAll({
@@ -470,7 +550,7 @@ export class TripsService {
       return this.favoritesService.getFavoritePlacesInProvinces(
         userId,
         provinceIds,
-        { page, pageSize: limit }
+        { page, pageSize: limit },
       );
     } else if (type === 'event') {
       return this.favoritesService.getFavoriteEventsInProvinces(
@@ -478,7 +558,7 @@ export class TripsService {
         provinceIds,
         { page, pageSize: limit },
         trip.startDate,
-        trip.endDate
+        trip.endDate,
       );
     }
 
@@ -508,28 +588,35 @@ export class TripsService {
       const place = await this.placesService.findOne(createItemDto.item_id);
       if (!place) {
         // Place may come from Qdrant/MongoDB but not exist in Postgres yet — allow anyway
-        console.warn(`Place ${createItemDto.item_id} not found in Postgres, adding item anyway`);
+        console.warn(
+          `Place ${createItemDto.item_id} not found in Postgres, adding item anyway`,
+        );
       }
     } else if (createItemDto.item_type === 'event' && createItemDto.item_id) {
       const event = await this.eventsService.findOne(createItemDto.item_id);
       if (!event) {
-        console.warn(`Event ${createItemDto.item_id} not found in Postgres, adding item anyway`);
+        console.warn(
+          `Event ${createItemDto.item_id} not found in Postgres, adding item anyway`,
+        );
       }
     }
 
     // Generate new item ID
-    const maxId = tripDay.items.length > 0
-      ? Math.max(...tripDay.items.map((i) => i.id))
-      : 0;
+    const maxId =
+      tripDay.items.length > 0
+        ? Math.max(...tripDay.items.map((i) => i.id))
+        : 0;
 
     // Determine order
-    const order = createItemDto.order !== undefined
-      ? createItemDto.order
-      : tripDay.items.length;
+    const order =
+      createItemDto.order !== undefined
+        ? createItemDto.order
+        : tripDay.items.length;
 
     const newItem: TripItem = {
       id: maxId + 1,
-      [createItemDto.item_type === 'place' ? 'place_id' : 'event_id']: createItemDto.item_id,
+      [createItemDto.item_type === 'place' ? 'place_id' : 'event_id']:
+        createItemDto.item_id,
       note: createItemDto.note,
       order,
       start_time: createItemDto.start_time,

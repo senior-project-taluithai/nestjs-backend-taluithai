@@ -29,7 +29,7 @@ export class TripDayDto {
   @ApiProperty({ example: 1 })
   id: number;
 
-  @Expose({ name: 'day_number' }) 
+  @Expose({ name: 'day_number' })
   @ApiProperty({ name: 'day_number', example: 1 })
   dayNumber: number;
 
@@ -92,7 +92,7 @@ export class TripDto {
 }
 
 export class TripDetailDto extends TripDto {
-  @Expose({ name: 'TripDays' }) 
+  @Expose({ name: 'TripDays' })
   @Type(() => TripDayDto)
   @ApiProperty({ name: 'TripDays', type: [TripDayDto] })
   tripDays: TripDayDto[];

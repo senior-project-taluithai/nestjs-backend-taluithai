@@ -46,15 +46,25 @@ export class UsersController {
   }
 
   @Get('me/recommendation-preferences')
-  @ApiOperation({ summary: 'Get my recommendation preferences (categories & regions)' })
-  @ApiResponse({ status: 200, description: 'Return preferred category IDs and regions.' })
+  @ApiOperation({
+    summary: 'Get my recommendation preferences (categories & regions)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Return preferred category IDs and regions.',
+  })
   async getRecommendationPreferences(@Req() req) {
     return this.usersService.getRecommendationPreferences(req.user.id);
   }
 
   @Post('me/recommendation-preferences')
-  @ApiOperation({ summary: 'Update my recommendation preferences (categories & regions)' })
-  @ApiResponse({ status: 200, description: 'Recommendation preferences updated.' })
+  @ApiOperation({
+    summary: 'Update my recommendation preferences (categories & regions)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Recommendation preferences updated.',
+  })
   @ApiBody({ type: UpdateRecommendationPreferencesDto })
   async updateRecommendationPreferences(
     @Req() req,

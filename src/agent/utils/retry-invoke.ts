@@ -16,11 +16,11 @@ const RETRYABLE_PATTERNS = [
   'socket hang up',
   'network error',
   'fetch failed',
-  '429',       // rate limit
-  '500',       // server error
-  '502',       // bad gateway
-  '503',       // service unavailable
-  '529',       // overloaded
+  '429', // rate limit
+  '500', // server error
+  '502', // bad gateway
+  '503', // service unavailable
+  '529', // overloaded
 ];
 
 function isRetryable(err: unknown): boolean {

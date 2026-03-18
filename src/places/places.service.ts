@@ -29,7 +29,7 @@ export class PlacesService {
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
     private recommendationService: RecommendationService,
-  ) { }
+  ) {}
 
   async findAll(filter: PlaceFilterDto): Promise<PaginatedResultDto<Place>> {
     const {
@@ -83,12 +83,16 @@ export class PlacesService {
 
     // Sorting
     if (filter.orderField) {
-      const field = filter.orderField === 'name_en' ? 'place.nameEn' :
-        filter.orderField === 'reviewCount' ? 'reviewCount' :
-          `place.${filter.orderField}`;
+      const field =
+        filter.orderField === 'name_en'
+          ? 'place.nameEn'
+          : filter.orderField === 'reviewCount'
+            ? 'reviewCount'
+            : `place.${filter.orderField}`;
 
       if (filter.orderField === 'reviewCount') {
-        query.leftJoin('place.reviews', 'review_count_join')
+        query
+          .leftJoin('place.reviews', 'review_count_join')
           .addSelect('COUNT(review_count_join.id)', 'review_count')
           .groupBy('place.id')
           .addGroupBy('province.id')
@@ -128,7 +132,14 @@ export class PlacesService {
   async findOne(id: number): Promise<Place | null> {
     return this.placesRepository.findOne({
       where: { id },
-      relations: ['province', 'placeCategories', 'placeCategories.category', 'reviews', 'reviews.user', 'images'],
+      relations: [
+        'province',
+        'placeCategories',
+        'placeCategories.category',
+        'reviews',
+        'reviews.user',
+        'images',
+      ],
     });
   }
 
@@ -136,13 +147,20 @@ export class PlacesService {
     if (!ids || ids.length === 0) return [];
     return this.placesRepository.find({
       where: { id: In(ids) },
-      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
+      relations: [
+        'province',
+        'placeCategories',
+        'placeCategories.category',
+        'images',
+      ],
     });
   }
 
-  async create(place: Partial<Place> & { imageUrls?: string[] }): Promise<Place> {
+  async create(
+    place: Partial<Place> & { imageUrls?: string[] },
+  ): Promise<Place> {
     if (place.imageUrls && Array.isArray(place.imageUrls)) {
-      place.images = place.imageUrls.map((url) => ({ url } as any));
+      place.images = place.imageUrls.map((url) => ({ url }) as any);
       delete place.imageUrls;
     }
     const newPlace = this.placesRepository.create(place);
@@ -179,7 +197,11 @@ export class PlacesService {
 
     // Fetch more candidates so reranking has a bigger pool
     const placeIds = await this.recommendationService.recommend(
-      enrichedQuery, 30, preferredCategoryIds, preferredRegions, engagement,
+      enrichedQuery,
+      30,
+      preferredCategoryIds,
+      preferredRegions,
+      engagement,
     );
 
     if (placeIds.length > 0) {
@@ -195,7 +217,12 @@ export class PlacesService {
     return this.placesRepository.find({
       take: 10,
       order: { rating: 'DESC' },
-      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
+      relations: [
+        'province',
+        'placeCategories',
+        'placeCategories.category',
+        'images',
+      ],
     });
   }
 
@@ -203,7 +230,12 @@ export class PlacesService {
     return this.placesRepository.find({
       take: 10,
       order: { rating: 'DESC' },
-      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
+      relations: [
+        'province',
+        'placeCategories',
+        'placeCategories.category',
+        'images',
+      ],
     });
   }
 
@@ -212,7 +244,12 @@ export class PlacesService {
       take: 10,
       // Reverse order of popular or specific logic to get different items
       order: { id: 'DESC' },
-      relations: ['province', 'placeCategories', 'placeCategories.category', 'images'],
+      relations: [
+        'province',
+        'placeCategories',
+        'placeCategories.category',
+        'images',
+      ],
     });
   }
 
@@ -233,16 +270,25 @@ export class PlacesService {
     }
 
     // TODO: Filter by bestSeason enum matches or 'all_year'
-    return this.placesRepository.createQueryBuilder('place')
+    return this.placesRepository
+      .createQueryBuilder('place')
       .leftJoinAndSelect('place.province', 'province')
       .leftJoinAndSelect('place.placeCategories', 'placeCategories')
       .leftJoinAndSelect('placeCategories.category', 'category')
-      .where('place.best_season = :season OR place.best_season = :allYear', { season, allYear: 'all_year' })
+      .where('place.best_season = :season OR place.best_season = :allYear', {
+        season,
+        allYear: 'all_year',
+      })
       .take(4)
       .getMany();
   }
 
-  async createReview(placeId: number, userId: string, comment: string, rating: number): Promise<PlaceReview> {
+  async createReview(
+    placeId: number,
+    userId: string,
+    comment: string,
+    rating: number,
+  ): Promise<PlaceReview> {
     const review = this.reviewsRepository.create({
       placeId,
       userId,

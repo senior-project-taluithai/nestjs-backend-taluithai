@@ -100,7 +100,9 @@ export class ToolsService {
   async vectorSearch(
     query: string,
     limit = 10,
-  ): Promise<(VectorSearchResult & { pg_place_id?: number; province_name?: string })[]> {
+  ): Promise<
+    (VectorSearchResult & { pg_place_id?: number; province_name?: string })[]
+  > {
     const results = await this.qdrantService.search(query, { limit });
 
     // Enrich with PG place_id by matching name + approximate coordinates
@@ -279,8 +281,7 @@ export class ToolsService {
     });
     const existingKeys = new Set(
       existingPlaces.map(
-        (p) =>
-          `${p.name}|${p.latitude?.toFixed(4)}|${p.longitude?.toFixed(4)}`,
+        (p) => `${p.name}|${p.latitude?.toFixed(4)}|${p.longitude?.toFixed(4)}`,
       ),
     );
     this.logger.log(
@@ -335,10 +336,7 @@ export class ToolsService {
 
           // Extract province from address
           const address = (doc.address as string) || '';
-          const provinceId = this.extractProvinceId(
-            address,
-            provinceNameMap,
-          );
+          const provinceId = this.extractProvinceId(address, provinceNameMap);
           if (!provinceId) {
             skipped++;
             continue;
@@ -358,9 +356,7 @@ export class ToolsService {
           });
 
           batchCategoryNames.push(
-            (doc.category as string) ||
-              collectionCategoryMap[colName] ||
-              '',
+            (doc.category as string) || collectionCategoryMap[colName] || '',
           );
 
           existingKeys.add(key);
@@ -439,9 +435,7 @@ export class ToolsService {
           );
         }
       } catch (e) {
-        this.logger.warn(
-          `Failed to insert place: ${(e as Error).message}`,
-        );
+        this.logger.warn(`Failed to insert place: ${(e as Error).message}`);
       }
     }
     return count;

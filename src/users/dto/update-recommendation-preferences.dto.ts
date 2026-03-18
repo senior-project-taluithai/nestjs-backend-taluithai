@@ -1,7 +1,14 @@
 import { IsArray, IsNumber, IsString, IsOptional, IsIn } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
-const VALID_REGIONS = ['North', 'South', 'Northeast', 'Central', 'East', 'West'];
+const VALID_REGIONS = [
+  'North',
+  'South',
+  'Northeast',
+  'Central',
+  'East',
+  'West',
+];
 
 export class UpdateRecommendationPreferencesDto {
   @ApiProperty({

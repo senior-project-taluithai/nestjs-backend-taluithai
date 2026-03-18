@@ -18,6 +18,7 @@ import pg from 'pg';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { buildTravelAgentGraph } from './graph.js';
 import { createSearchTools } from './tools/search.tools.js';
+import { createBudgetTools } from './tools/budget.tools.js';
 
 // ─── Env helpers ─────────────────────────────────────────────────────────────
 
@@ -113,10 +114,7 @@ interface VectorSearchResult {
 
 const toolsServiceLike = {
   /** Qdrant semantic search + PG enrichment */
-  async vectorSearch(
-    query: string,
-    limit = 10,
-  ): Promise<VectorSearchResult[]> {
+  async vectorSearch(query: string, limit = 10): Promise<VectorSearchResult[]> {
     const vector = await embed(query);
     const hits = await qdrant.search(qdrantCollection, {
       vector,
@@ -125,7 +123,7 @@ const toolsServiceLike = {
     });
 
     const results: VectorSearchResult[] = hits.map((h) => {
-      const p = (h.payload ?? {}) as Record<string, unknown>;
+      const p = h.payload ?? {};
       return {
         id: h.id,
         score: h.score,
@@ -357,7 +355,10 @@ async function lookupThumbnails(
   return map;
 }
 
-// ─── Build & export the compiled graph ───────────────────────────────────────
+// ─── Build & export the compiled supervisor graph ────────────────────────────
 
-const tools = createSearchTools(toolsServiceLike as any);
+const tools = [
+  ...createSearchTools(toolsServiceLike as any),
+  ...createBudgetTools(),
+];
 export const graph = buildTravelAgentGraph(tools, undefined, lookupThumbnails);

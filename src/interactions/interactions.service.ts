@@ -7,9 +7,9 @@ import {
 } from './entities/user-interaction.entity';
 
 export interface EngagementScores {
-  plays: number;   // mapped from view
-  likes: number;   // mapped from add_to_trip
-  shares: number;  // mapped from share
+  plays: number; // mapped from view
+  likes: number; // mapped from add_to_trip
+  shares: number; // mapped from share
   collects: number; // mapped from save
 }
 
@@ -48,7 +48,9 @@ export class InteractionsService {
       .groupBy('i.interaction_type')
       .getRawMany<{ type: InteractionType; count: string }>();
 
-    const countMap = new Map(counts.map((c) => [c.type, parseInt(c.count, 10)]));
+    const countMap = new Map(
+      counts.map((c) => [c.type, parseInt(c.count, 10)]),
+    );
 
     // Log-normalize with the same divisors used during training
     return {

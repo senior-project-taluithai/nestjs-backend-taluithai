@@ -20,7 +20,10 @@ export class TiktokService {
    * Get TikTok video URLs for a place. Returns cached results if fresh,
    * otherwise scrapes TikTok search and caches.
    */
-  async getVideosForPlace(placeId: number, placeName: string): Promise<string[]> {
+  async getVideosForPlace(
+    placeId: number,
+    placeName: string,
+  ): Promise<string[]> {
     // Check cache first
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - CACHE_DAYS);
@@ -74,7 +77,10 @@ export class TiktokService {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           if (attempt === 0) {
-            await page.goto(searchUrl, { timeout: 45000, waitUntil: 'networkidle' });
+            await page.goto(searchUrl, {
+              timeout: 45000,
+              waitUntil: 'networkidle',
+            });
           } else {
             await page.reload({ timeout: 45000, waitUntil: 'networkidle' });
           }
@@ -102,7 +108,9 @@ export class TiktokService {
           if (tab) {
             await tab.click();
             await page.waitForTimeout(2000);
-            await page.waitForSelector('a[href*="/video/"]', { timeout: 10000 });
+            await page.waitForSelector('a[href*="/video/"]', {
+              timeout: 10000,
+            });
           }
         } catch {
           this.logger.warn(`No video results for: ${query}`);

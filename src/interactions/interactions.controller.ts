@@ -11,7 +11,9 @@ export class InteractionsController {
   constructor(private readonly interactionsService: InteractionsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Track a user interaction (view, save, add_to_trip, share)' })
+  @ApiOperation({
+    summary: 'Track a user interaction (view, save, add_to_trip, share)',
+  })
   async create(@Req() req, @Body() dto: CreateInteractionDto) {
     return this.interactionsService.create(
       req.user.id,

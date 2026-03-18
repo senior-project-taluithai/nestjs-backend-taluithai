@@ -8,7 +8,9 @@ import { EventImage } from './entities/event-image.entity';
 import { EventCategory } from './entities/event-category.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Event, EventReview, EventImage, EventCategory])],
+  imports: [
+    TypeOrmModule.forFeature([Event, EventReview, EventImage, EventCategory]),
+  ],
   controllers: [EventsController],
   providers: [EventsService],
   exports: [EventsService],

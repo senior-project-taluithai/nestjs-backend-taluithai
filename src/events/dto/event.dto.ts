@@ -19,7 +19,7 @@ export class EventDto {
   @ApiProperty({ example: 'Thai New Year celebration' })
   detail: string;
 
-  @Expose({ name: 'detail_en' }) 
+  @Expose({ name: 'detail_en' })
   @ApiProperty({ name: 'detail_en', example: 'Thai New Year celebration' })
   detailEn: string;
 
@@ -56,11 +56,18 @@ export class EventDto {
   rating: number;
 
   @Expose({ name: 'thumbnail_url' })
-  @ApiProperty({ name: 'thumbnail_url', example: 'https://example.com/event.jpg' })
+  @ApiProperty({
+    name: 'thumbnail_url',
+    example: 'https://example.com/event.jpg',
+  })
   thumbnailUrl: string;
 
   @Expose({ name: 'image_urls' })
-  @ApiProperty({ name: 'image_urls', type: [String], example: ['https://example.com/event1.jpg'] })
+  @ApiProperty({
+    name: 'image_urls',
+    type: [String],
+    example: ['https://example.com/event1.jpg'],
+  })
   imageUrls: string[];
 
   @Expose()

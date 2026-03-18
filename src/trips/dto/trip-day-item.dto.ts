@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Min,
+} from 'class-validator';
 
 export enum ItemType {
   PLACE = 'place',
@@ -47,20 +54,32 @@ export class CreateTripDayItemDto {
   @IsString()
   note?: string;
 
-  @ApiProperty({ example: 1, required: false, description: 'Order in the day, auto-assigned if not provided' })
+  @ApiProperty({
+    example: 1,
+    required: false,
+    description: 'Order in the day, auto-assigned if not provided',
+  })
   @IsOptional()
   @IsInt()
   @Min(0)
   order?: number;
 
-  @ApiProperty({ example: '09:00', required: false, description: 'Time in HH:mm format' })
+  @ApiProperty({
+    example: '09:00',
+    required: false,
+    description: 'Time in HH:mm format',
+  })
   @IsOptional()
   @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, {
     message: 'start_time must be in HH:mm format',
   })
   start_time?: string;
 
-  @ApiProperty({ example: '11:00', required: false, description: 'Time in HH:mm format' })
+  @ApiProperty({
+    example: '11:00',
+    required: false,
+    description: 'Time in HH:mm format',
+  })
   @IsOptional()
   @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, {
     message: 'end_time must be in HH:mm format',

@@ -122,7 +122,7 @@ export class QdrantService implements OnModuleInit {
     score?: number;
     payload?: Record<string, unknown> | null;
   }): VectorSearchResult {
-    const p = (point.payload ?? {}) as Record<string, unknown>;
+    const p = point.payload ?? {};
     return {
       id: typeof point.id === 'bigint' ? point.id.toString() : point.id,
       score: point.score ?? 0,
