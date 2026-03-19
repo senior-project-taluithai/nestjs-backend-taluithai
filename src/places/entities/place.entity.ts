@@ -5,6 +5,7 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
+  AfterLoad,
 } from 'typeorm';
 import { Expose } from 'class-transformer';
 import { Province } from '../../provinces/entities/province.entity';
@@ -97,4 +98,21 @@ export class Place {
   reviews: PlaceReview[];
 
   reviewCount?: number;
+
+  @Expose({ name: 'is_trending' })
+  isTrending?: boolean;
+
+  @AfterLoad()
+  updateThumbnailFromImages() {
+    // Override thumbnail_url with the first available image in the gallery
+    // since some default thumbnail_urls are broken/blank white images
+    if (this.images && this.images.length > 0) {
+      const validImg = this.images.find(
+        (img) => img.url && img.url.trim() !== '',
+      );
+      if (validImg) {
+        this.thumbnailUrl = validImg.url;
+      }
+    }
+  }
 }

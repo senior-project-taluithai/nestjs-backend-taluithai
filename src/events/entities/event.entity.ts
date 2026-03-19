@@ -6,6 +6,7 @@ import {
   JoinColumn,
   OneToMany,
   UpdateDateColumn,
+  AfterLoad,
 } from 'typeorm';
 import { Province } from '../../provinces/entities/province.entity';
 import { EventReview } from './event-review.entity';
@@ -86,4 +87,17 @@ export class Event {
   updatedAt: Date;
 
   reviewCount?: number;
+
+  @AfterLoad()
+  updateThumbnailFromImages() {
+    // Override thumbnail_url with the first available image in the gallery
+    if (this.images && this.images.length > 0) {
+      const validImg = this.images.find(
+        (img) => img.url && img.url.trim() !== '',
+      );
+      if (validImg) {
+        this.thumbnailUrl = validImg.url;
+      }
+    }
+  }
 }

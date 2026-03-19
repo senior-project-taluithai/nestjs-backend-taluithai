@@ -80,6 +80,14 @@ export class EventDto {
 
   constructor(partial: Partial<EventDto>) {
     Object.assign(this, partial);
+
+    // Override thumbnail_url with the first available image in the gallery
+    if (this.imageUrls && this.imageUrls.length > 0) {
+      const validImg = this.imageUrls.find((url) => url && url.trim() !== '');
+      if (validImg) {
+        this.thumbnailUrl = validImg;
+      }
+    }
   }
 }
 
@@ -92,5 +100,13 @@ export class EventDetailDto extends EventDto {
   constructor(partial: Partial<EventDetailDto>) {
     super(partial);
     Object.assign(this, partial);
+
+    // Override thumbnail_url with the first available image in the gallery
+    if (this.imageUrls && this.imageUrls.length > 0) {
+      const validImg = this.imageUrls.find((url) => url && url.trim() !== '');
+      if (validImg) {
+        this.thumbnailUrl = validImg;
+      }
+    }
   }
 }

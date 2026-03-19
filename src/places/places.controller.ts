@@ -56,13 +56,39 @@ export class PlacesController {
     let engagement;
 
     if (req.user?.id) {
-      const [prefs, eng] = await Promise.all([
+      const [prefs, eng, recentSignals, travelPrefs] = await Promise.all([
         this.usersService.getRecommendationPreferences(req.user.id),
         this.interactionsService.getUserEngagement(req.user.id),
+        this.interactionsService.getUserRecentRecommendationSignals(
+          req.user.id,
+        ),
+        this.usersService.getUserPreferences(req.user.id),
       ]);
       preferredCategoryIds = prefs.preferredCategoryIds;
       preferredRegions = prefs.preferredRegions;
       engagement = eng;
+
+      const baseQuery =
+        travelPrefs && travelPrefs.length > 0
+          ? travelPrefs.map((p) => p.name).join(' ')
+          : 'สถานที่ท่องเที่ยว';
+
+      const places = await this.placesService.getRecommended(
+        baseQuery,
+        preferredCategoryIds,
+        preferredRegions,
+        engagement,
+        recentSignals,
+      );
+      return places.map(
+        (p) =>
+          new PlaceDto({
+            ...p,
+            categories:
+              p.placeCategories?.map((pc) => pc.category.nameEn) || [],
+            imageUrls: p.images?.map((i) => i.url) || [],
+          }),
+      );
     }
 
     const places = await this.placesService.getRecommended(
