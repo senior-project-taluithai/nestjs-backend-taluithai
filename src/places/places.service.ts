@@ -4,6 +4,8 @@ import { Repository, In, SelectQueryBuilder } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { PlaceReview } from './entities/place-review.entity';
 import { Category } from '../categories/entities/category.entity';
+import { UsersService } from '../users/users.service';
+import { RegionEnum } from '../provinces/entities/province.entity';
 import { MongoService } from '../mongo/mongo.service';
 import { PlaceFilterDto } from './dto/place-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
@@ -100,6 +102,7 @@ export class PlacesService {
   private readonly logger = new Logger(PlacesService.name);
 
   constructor(
+    private usersService: UsersService,
     @InjectRepository(Place)
     private placesRepository: Repository<Place>,
     @InjectRepository(PlaceReview)
@@ -814,18 +817,192 @@ export class PlacesService {
     return [...trendingPlaces, ...standardPopularPlaces];
   }
 
-  async getHiddenGems(): Promise<Place[]> {
-    return this.placesRepository.find({
-      take: 10,
-      // Reverse order of popular or specific logic to get different items
-      order: { id: 'DESC' },
-      relations: [
-        'province',
-        'placeCategories',
-        'placeCategories.category',
-        'images',
-      ],
-    });
+  async getHiddenGems(region?: RegionEnum, userId?: string): Promise<Place[]> {
+    const limit = 10;
+
+    // 1. Fetch user preferences if userId is provided
+    let preferredRegions: string[] = [];
+    let preferredCategoryIds: number[] = [];
+    if (userId) {
+      try {
+        const prefs =
+          await this.usersService.getRecommendationPreferences(userId);
+        preferredRegions = prefs.preferredRegions || [];
+        preferredCategoryIds = prefs.preferredCategoryIds || [];
+      } catch (error) {
+        this.logger.error(`Failed to fetch user preferences: ${error.message}`);
+      }
+    }
+
+    // 2. Fetch all possible valid places from PostgreSQL with their regions and categories
+    const queryBuilder = this.placesRepository
+      .createQueryBuilder('place')
+      .leftJoinAndSelect('place.province', 'province')
+      .leftJoinAndSelect('place.placeCategories', 'placeCategories')
+      .leftJoinAndSelect('placeCategories.category', 'category')
+      .leftJoinAndSelect('place.images', 'images');
+
+    if (region) {
+      queryBuilder.where('province.region_name = :region', { region });
+    }
+
+    const pgPlaces = await queryBuilder.getMany();
+    const pgPlaceIds = pgPlaces.map((p) => p.id);
+    const pgPlacesMap = new Map(pgPlaces.map((p) => [p.id, p]));
+
+    if (pgPlaceIds.length === 0) {
+      return [];
+    }
+
+    // 3. Prepare the MongoDB Aggregation Pipeline
+    let trendingPlaceIds: number[] = [];
+    try {
+      const tiktokTrendsCol = this.mongoService.getCollection(
+        'tiktok_trends',
+        'taluithai',
+      );
+
+      const matchStage: any = {
+        // Ceiling and Floor limits for views to filter out mainstream places
+        'tiktokMetadata.views': { $gte: 10000, $lte: 500000 },
+        // Ensure placeId matches what we got from PG (region filter applied here implicitly)
+        placeId: { $in: pgPlaceIds.map((id) => id.toString()) },
+      };
+
+      const pipeline = [
+        { $match: matchStage },
+        {
+          $addFields: {
+            // Protect against division by zero
+            safeViews: {
+              $cond: [
+                { $eq: ['$tiktokMetadata.views', 0] },
+                1,
+                '$tiktokMetadata.views',
+              ],
+            },
+          },
+        },
+        {
+          $addFields: {
+            // Hidden Gem Score Formula: (Saves + Shares) / Views
+            engagementRate: {
+              $divide: [
+                {
+                  $add: [
+                    { $ifNull: ['$tiktokMetadata.collectCount', 0] },
+                    { $ifNull: ['$tiktokMetadata.shareCount', 0] },
+                  ],
+                },
+                '$safeViews',
+              ],
+            },
+            // Keyword Bonus: +50% if caption contains hidden gem keywords
+            keywordBonus: {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: { $ifNull: ['$tiktokMetadata.caption', ''] },
+                    regex:
+                      /ลับ|unseen|คนยังไม่ค่อยรู้|ซ่อนตัว|เปิดใหม่|เพิ่งเปิด/i,
+                  },
+                },
+                1.5,
+                1.0,
+              ],
+            },
+          },
+        },
+        {
+          $addFields: {
+            hiddenGemBaseScore: {
+              $multiply: ['$engagementRate', '$keywordBonus'],
+            },
+          },
+        },
+        // We will do the personalization sorting in memory since we need to match
+        // with pg data for regions and categories.
+        { $sort: { hiddenGemBaseScore: -1 } },
+        { $limit: 100 }, // Fetch more initially so we can sort them nicely
+      ];
+
+      const trends = await tiktokTrendsCol.aggregate(pipeline).toArray();
+
+      // 4. In-Memory Personalization Scoring
+      const scoredTrends = trends.map((trend) => {
+        const placeId = parseInt(trend.placeId, 10);
+        const pgPlace = pgPlacesMap.get(placeId);
+
+        let personalBonus = 1.0;
+
+        if (pgPlace && userId) {
+          // Check region preference bonus
+          if (
+            pgPlace.province &&
+            preferredRegions.includes(pgPlace.province.regionName)
+          ) {
+            personalBonus *= 1.2;
+          }
+
+          // Check category preference bonus
+          if (
+            pgPlace.placeCategories &&
+            pgPlace.placeCategories.some((pc) =>
+              preferredCategoryIds.includes(pc.category?.id),
+            )
+          ) {
+            personalBonus *= 1.2;
+          }
+        }
+
+        const finalScore = (trend.hiddenGemBaseScore || 0) * personalBonus;
+
+        return {
+          placeId,
+          finalScore,
+        };
+      });
+
+      // Sort by the final personalized score
+      scoredTrends.sort((a, b) => b.finalScore - a.finalScore);
+
+      // Take the top 10
+      trendingPlaceIds = scoredTrends.slice(0, limit).map((t) => t.placeId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch hidden gems from MongoDB: ${error.message}`,
+      );
+    }
+
+    // 5. Build the final sorted array of PG places to return
+    const trendingPlaces: Place[] = [];
+    if (trendingPlaceIds.length > 0) {
+      // Map them in the exact order determined by the ranking
+      for (const id of trendingPlaceIds) {
+        const place = pgPlacesMap.get(id);
+        if (place) {
+          // Add a flag so frontend knows this is a special recommendation
+          place.isTrending = true;
+          trendingPlaces.push(place);
+        }
+      }
+    }
+
+    // Fallback if no hidden gems found
+    if (trendingPlaces.length === 0) {
+      return this.placesRepository.find({
+        take: limit,
+        order: { id: 'DESC' },
+        relations: [
+          'province',
+          'placeCategories',
+          'placeCategories.category',
+          'images',
+        ],
+      });
+    }
+
+    return trendingPlaces;
   }
 
   async getBestSeason(): Promise<Place[]> {
