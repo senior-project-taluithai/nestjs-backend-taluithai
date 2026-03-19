@@ -740,7 +740,7 @@ export class PlacesService {
 
   async getPopular(): Promise<Place[]> {
     // 1. Get top trending places from TikTok in MongoDB
-    const limit = 5;
+    const limit = 10;
     let trendingPlaceIds: number[] = [];
     try {
       const tiktokTrendsCol = this.mongoService.getCollection(
