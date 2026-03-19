@@ -193,10 +193,22 @@ CRITICAL INSTRUCTIONS FOR STOPPING:
 
 const ALLOWED_THUMBNAIL_HOSTS = new Set([
   'lh3.googleusercontent.com',
+  'lh4.googleusercontent.com',
+  'lh5.googleusercontent.com',
+  'lh6.googleusercontent.com',
   'streetviewpixels-pa.googleapis.com',
+  'dmc.tatdataapi.io',
+  'img.wongnai.com',
+  'static2.wongnai.com',
   'tatapi.tourismthailand.org',
   'www.tourismthailand.org',
 ]);
+
+function normalizeThumbnailUrl(url: string): string {
+  const trimmed = url.trim();
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  return trimmed;
+}
 
 type ParsedTripDay = {
   items?: Array<Record<string, unknown>>;
@@ -233,7 +245,7 @@ function parseJsonCodeBlocks(text: string): ParsedJsonBlock[] {
 
 function isAllowedThumbnailUrl(url: string): boolean {
   try {
-    const u = new URL(url);
+    const u = new URL(normalizeThumbnailUrl(url));
     return u.protocol === 'https:' && ALLOWED_THUMBNAIL_HOSTS.has(u.hostname);
   } catch {
     return false;
@@ -400,13 +412,20 @@ export async function fixThumbnailsInResponse(
         const pid = item.pg_place_id as number | undefined;
         if (typeof pid === 'number' && thumbMap.has(pid)) {
           const real = thumbMap.get(pid) || '';
-          item.thumbnail_url = real && isAllowedThumbnailUrl(real) ? real : '';
+          const normalized = normalizeThumbnailUrl(real);
+          item.thumbnail_url =
+            normalized && isAllowedThumbnailUrl(normalized) ? normalized : '';
         } else if (
           typeof item.thumbnail_url === 'string' &&
           item.thumbnail_url &&
           !isAllowedThumbnailUrl(item.thumbnail_url)
         ) {
           item.thumbnail_url = '';
+        } else if (
+          typeof item.thumbnail_url === 'string' &&
+          item.thumbnail_url
+        ) {
+          item.thumbnail_url = normalizeThumbnailUrl(item.thumbnail_url);
         }
       }
     }
