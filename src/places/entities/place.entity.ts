@@ -70,6 +70,14 @@ export class Place {
   @Expose()
   rating: number;
 
+  @Column({ name: 'user_rating', type: 'float', default: 0 })
+  @Expose({ name: 'user_rating' })
+  userRating: number;
+
+  @Column({ name: 'user_rating_count', type: 'int', default: 0 })
+  @Expose({ name: 'user_rating_count' })
+  userRatingCount: number;
+
   @Column({ name: 'thumbnail_url', nullable: true })
   @Expose({ name: 'thumbnail_url' })
   thumbnailUrl: string;

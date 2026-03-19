@@ -97,13 +97,13 @@ export class PlacesController {
 
     return {
       data: data.map(
-        (place) =>
+        (place: any) =>
           new PlaceDto({
             ...place,
-            reviewCount: place.reviewCount,
+            reviewCount: parseInt(place.review_count || 0) || 0,
             categories:
-              place.placeCategories?.map((pc) => pc.category.nameEn) || [],
-            imageUrls: place.images?.map((i) => i.url) || [],
+              place.placeCategories?.map((pc: any) => pc.category.nameEn) || [],
+            imageUrls: place.images?.map((i: any) => i.url) || [],
           }),
       ),
       page,

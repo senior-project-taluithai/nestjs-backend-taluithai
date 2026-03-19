@@ -61,8 +61,6 @@ export class EventsService {
     }
 
     if (filter.startDate && filter.endDate) {
-      // Check for overlapping dates
-      // (EventStartDate <= FilterEndDate) AND (EventEndDate >= FilterStartDate)
       query.andWhere(
         '(event.startDate <= :endDate AND event.endDate >= :startDate)',
         {
@@ -77,53 +75,59 @@ export class EventsService {
 
     // Sorting
     if (filter.orderField) {
-      const field =
-        filter.orderField === 'name_en'
-          ? 'event.nameEn'
-          : filter.orderField === 'reviewCount'
-            ? 'reviewCount'
-            : `event.${filter.orderField}`;
-
       if (filter.orderField === 'reviewCount') {
         query
-          .leftJoin('event.reviews', 'review_count_join')
-          .addSelect('COUNT(review_count_join.id)', 'review_count')
+          .leftJoin('event.reviews', 'rc')
+          .addSelect('COUNT(rc.id)', 'reviewCount')
           .groupBy('event.id')
-          .addGroupBy('province.id')
-          .addGroupBy('images.id')
-          .addGroupBy('eventCategories.id')
-          .addGroupBy('category.id')
-          .orderBy('review_count', filter.orderDir || 'DESC');
+          .orderBy('reviewCount', filter.orderDir || 'DESC');
       } else {
+        const field =
+          filter.orderField === 'name_en'
+            ? 'event.nameEn'
+            : `event.${filter.orderField}`;
         query.orderBy(field, filter.orderDir || 'DESC');
       }
     }
 
-    query
-      .loadRelationCountAndMap('event.reviewCount', 'event.reviews')
-      .skip((safePage - 1) * safeLimit)
-      .take(safeLimit);
-
-    // console.log('Event Filter:', JSON.stringify(filter, null, 2));
-    // console.log('Generated SQL:', query.getSql());
-    // console.log('Parameters:', query.getParameters());
+    query.skip((safePage - 1) * safeLimit).take(safeLimit);
 
     const [events, total] = await query.getManyAndCount();
 
+    // Calculate review counts separately if not already loaded
+    const eventIds = events.map((e) => e.id);
+    if (eventIds.length > 0) {
+      const reviews = await this.reviewsRepository
+        .createQueryBuilder('r')
+        .where('r.eventId IN (:...eventIds)', { eventIds })
+        .getMany();
+
+      const countMap = new Map<number, number>();
+      reviews.forEach((r) => {
+        countMap.set(r.eventId, (countMap.get(r.eventId) || 0) + 1);
+      });
+      events.forEach((event) => {
+        (event as any).review_count = countMap.get(event.id) || 0;
+      });
+    }
+
     // Calculate stats
     const stats = await statsQuery
-      .select('AVG(event.rating)', 'avgRating')
       .leftJoin('event.reviews', 'review_stats')
+      .select('AVG(review_stats.rating)', 'avgRating')
       .addSelect('COUNT(review_stats.id)', 'totalReviews')
       .getRawOne();
+
+    const avgRatingVal = stats.avgRating ? parseFloat(stats.avgRating) : 0;
+    const totalReviewsVal = parseInt(stats.totalReviews || 0, 10);
 
     return {
       data: events,
       page: safePage,
       last_page: Math.ceil(total / safeLimit),
       total,
-      avgRating: parseFloat(stats.avgRating || 0).toFixed(1) as any,
-      totalReviews: parseInt(stats.totalReviews || 0, 10),
+      avgRating: Math.round(avgRatingVal * 10) / 10,
+      totalReviews: totalReviewsVal,
     };
   }
 
@@ -237,6 +241,43 @@ export class EventsService {
       comment,
       rating,
     });
-    return this.reviewsRepository.save(review);
+    const savedReview = await this.reviewsRepository.save(review);
+
+    await this.updateEventRating(eventId);
+
+    return savedReview;
+  }
+
+  private async updateEventRating(eventId: number): Promise<void> {
+    const result = await this.reviewsRepository
+      .createQueryBuilder('review')
+      .select('AVG(review.rating)', 'avgRating')
+      .addSelect('COUNT(review.id)', 'count')
+      .where('review.eventId = :eventId', { eventId })
+      .getRawOne();
+
+    await this.eventsRepository.update(eventId, {
+      rating: result.avgRating ? parseFloat(result.avgRating) : 0,
+    });
+  }
+
+  async findByMonth(year: number, month: number): Promise<Event[]> {
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+
+    return this.eventsRepository
+      .createQueryBuilder('event')
+      .leftJoinAndSelect('event.province', 'province')
+      .leftJoinAndSelect('event.images', 'images')
+      .leftJoinAndSelect('event.eventCategories', 'eventCategories')
+      .leftJoinAndSelect('eventCategories.category', 'category')
+      .leftJoinAndSelect('event.reviews', 'reviews')
+      .loadRelationCountAndMap('event.reviewCount', 'event.reviews')
+      .where('event.startDate <= :endDate AND event.endDate >= :startDate', {
+        startDate,
+        endDate,
+      })
+      .orderBy('event.startDate', 'ASC')
+      .getMany();
   }
 }

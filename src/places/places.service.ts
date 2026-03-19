@@ -86,31 +86,41 @@ export class PlacesService {
       const field =
         filter.orderField === 'name_en'
           ? 'place.nameEn'
-          : filter.orderField === 'reviewCount'
-            ? 'reviewCount'
+          : filter.orderField === 'rating'
+            ? 'place.rating'
             : `place.${filter.orderField}`;
 
       if (filter.orderField === 'reviewCount') {
         query
-          .leftJoin('place.reviews', 'review_count_join')
-          .addSelect('COUNT(review_count_join.id)', 'review_count')
+          .leftJoin('place.reviews', 'rc')
+          .addSelect('COUNT(rc.id)', 'reviewCount')
           .groupBy('place.id')
-          .addGroupBy('province.id')
-          .addGroupBy('images.id')
-          .addGroupBy('placeCategories.id')
-          .addGroupBy('category.id')
-          .orderBy('review_count', filter.orderDir || 'DESC');
+          .orderBy('reviewCount', filter.orderDir || 'DESC');
       } else {
         query.orderBy(field, filter.orderDir || 'DESC');
       }
     }
 
-    query
-      .loadRelationCountAndMap('place.reviewCount', 'place.reviews')
-      .skip((page - 1) * limit)
-      .take(limit);
+    query.skip((page - 1) * limit).take(limit);
 
     const [places, total] = await query.getManyAndCount();
+
+    // Calculate review counts separately if not already loaded
+    const placeIds = places.map((p) => p.id);
+    if (placeIds.length > 0) {
+      const reviews = await this.reviewsRepository
+        .createQueryBuilder('r')
+        .where('r.placeId IN (:...placeIds)', { placeIds })
+        .getMany();
+
+      const countMap = new Map<number, number>();
+      reviews.forEach((r) => {
+        countMap.set(r.placeId, (countMap.get(r.placeId) || 0) + 1);
+      });
+      places.forEach((place) => {
+        (place as any).review_count = countMap.get(place.id) || 0;
+      });
+    }
 
     // Calculate stats
     const stats = await statsQuery
@@ -295,6 +305,24 @@ export class PlacesService {
       comment,
       rating,
     });
-    return this.reviewsRepository.save(review);
+    const savedReview = await this.reviewsRepository.save(review);
+
+    await this.updatePlaceUserRating(placeId);
+
+    return savedReview;
+  }
+
+  private async updatePlaceUserRating(placeId: number): Promise<void> {
+    const result = await this.reviewsRepository
+      .createQueryBuilder('review')
+      .select('AVG(review.rating)', 'avgRating')
+      .addSelect('COUNT(review.id)', 'count')
+      .where('review.placeId = :placeId', { placeId })
+      .getRawOne();
+
+    await this.placesRepository.update(placeId, {
+      userRating: result.avgRating ? parseFloat(result.avgRating) : 0,
+      userRatingCount: parseInt(result.count) || 0,
+    });
   }
 }

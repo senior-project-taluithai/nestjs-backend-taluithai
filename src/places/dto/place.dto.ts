@@ -51,6 +51,14 @@ export class PlaceDto {
   @ApiProperty({ example: 4.8 })
   rating: number;
 
+  @Expose({ name: 'user_rating' })
+  @ApiProperty({ name: 'user_rating', example: 4.5 })
+  userRating: number;
+
+  @Expose({ name: 'user_rating_count' })
+  @ApiProperty({ name: 'user_rating_count', example: 5 })
+  userRatingCount: number;
+
   @Expose({ name: 'thumbnail_url' })
   @ApiProperty({
     name: 'thumbnail_url',

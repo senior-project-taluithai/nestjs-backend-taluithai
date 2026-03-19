@@ -5,6 +5,7 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
+  UpdateDateColumn,
 } from 'typeorm';
 import { Province } from '../../provinces/entities/province.entity';
 import { EventReview } from './event-review.entity';
@@ -80,6 +81,9 @@ export class Event {
 
   @OneToMany(() => EventReview, (review) => review.event)
   reviews: EventReview[];
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   reviewCount?: number;
 }

@@ -65,13 +65,13 @@ export class EventsController {
       await this.eventsService.findAll(filter);
     return {
       data: data.map(
-        (event) =>
+        (event: any) =>
           new EventDto({
             ...event,
-            reviewCount: event.reviewCount,
+            reviewCount: parseInt(event.review_count || 0) || 0,
             categories:
-              event.eventCategories?.map((ec) => ec.category.nameEn) || [],
-            imageUrls: event.images?.map((i) => i.url) || [],
+              event.eventCategories?.map((ec: any) => ec.category.nameEn) || [],
+            imageUrls: event.images?.map((i: any) => i.url) || [],
           }),
       ),
       page,
@@ -143,6 +143,29 @@ export class EventsController {
     );
   }
 
+  @Get('by-month')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get events by month for calendar view' })
+  @ApiQuery({ name: 'year', required: true, type: Number })
+  @ApiQuery({ name: 'month', required: true, type: Number })
+  @ApiResponse({
+    status: 200,
+    description: 'Return all events that overlap with the given month.',
+    type: [EventDto],
+  })
+  async getByMonth(@Query('year') year: string, @Query('month') month: string) {
+    const events = await this.eventsService.findByMonth(+year, +month);
+    return events.map(
+      (e) =>
+        new EventDto({
+          ...e,
+          reviewCount: e.reviewCount,
+          categories: e.eventCategories?.map((ec) => ec.category.nameEn) || [],
+          imageUrls: e.images?.map((i) => i.url) || [],
+        }),
+    );
+  }
+
   @Get(':id')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get event by id' })
@@ -157,6 +180,7 @@ export class EventsController {
     if (!event) return null;
     return new EventDetailDto({
       ...event,
+      reviewCount: event.reviews?.length || 0,
       categories: event.eventCategories?.map((ec) => ec.category.nameEn) || [],
       imageUrls: event.images?.map((i) => i.url) || [],
     });
