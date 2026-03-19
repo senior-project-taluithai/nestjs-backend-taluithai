@@ -2,29 +2,23 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
-  OnModuleDestroy,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { ToolsService } from '../tools/tools.service';
 import { PlacesService } from '../places/places.service';
+import { ChatService } from '../chat/chat.service';
 import { createSearchTools } from './tools/search.tools';
 import { createBudgetTools } from './tools/budget.tools';
-import {
-  AgentGraph,
-  buildTravelAgentGraph,
-  collectValidPgIds,
-  fixThumbnailsInResponse,
-  stripDistantItems,
-  stripFakeItems,
-} from './graph';
+import { createRedisCheckpointer } from './checkpointer/redis-checkpointer';
+import { AgentGraph, buildTravelAgentGraph } from './graph';
 import { HumanMessage } from '@langchain/core/messages';
 import { randomUUID } from 'crypto';
-import { validateTripWithDeepAgent } from './validator';
+import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 
 const DEFAULT_RECURSION_LIMIT = 80;
 const MIN_RECURSION_LIMIT = 10;
 const MAX_RECURSION_LIMIT = 240;
-const THREAD_TTL_HOURS = 24;
-const THREAD_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface ThreadInfo {
   thread_id: string;
@@ -36,26 +30,38 @@ export interface ThreadInfo {
 }
 
 @Injectable()
-export class AgentService implements OnModuleInit, OnModuleDestroy {
+export class AgentService implements OnModuleInit {
   private readonly logger = new Logger(AgentService.name);
   private graph: AgentGraph | null = null;
+  private checkpointer: BaseCheckpointSaver | null = null;
   private threads = new Map<string, ThreadInfo>();
-  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly toolsService: ToolsService,
     private readonly placesService: PlacesService,
+    @Inject(forwardRef(() => ChatService))
+    private readonly chatService: ChatService,
   ) {}
 
-  onModuleInit() {
-    // Enable LangSmith tracing when API key is configured
+  async onModuleInit() {
     const hasLangSmith = !!process.env.LANGSMITH_API_KEY;
     const tracingEnabled = hasLangSmith ? 'true' : 'false';
     process.env.LANGCHAIN_TRACING_V2 = tracingEnabled;
     process.env.LANGSMITH_TRACING = tracingEnabled;
     process.env.LANGCHAIN_API_KEY = process.env.LANGSMITH_API_KEY || '';
-    process.env.LANGCHAIN_PROJECT =
+    process.env.LANGSMITH_PROJECT =
       process.env.LANGSMITH_PROJECT || 'taluithai-agent';
+
+    this.logger.log('Initializing Redis checkpointer...');
+    try {
+      this.checkpointer = await createRedisCheckpointer();
+      this.logger.log('Redis checkpointer initialized successfully');
+    } catch (error) {
+      this.logger.error(
+        `Failed to initialize Redis checkpointer: ${(error as Error).message}`,
+      );
+      throw error;
+    }
 
     this.logger.log('Initializing travel agent graph...');
     const tools = [
@@ -66,63 +72,32 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       tools,
       undefined,
       this.lookupThumbnails.bind(this),
+      this.checkpointer,
     );
     this.logger.log(
       `Travel agent graph compiled successfully (LangSmith tracing: ${process.env.LANGCHAIN_TRACING_V2 === 'true' && !!process.env.LANGSMITH_API_KEY ? 'ON' : 'OFF'})`,
     );
-
-    // Start periodic cleanup of old threads
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupOldThreads();
-    }, THREAD_CLEANUP_INTERVAL_MS);
-    this.logger.log('Thread cleanup scheduler started');
-  }
-
-  onModuleDestroy() {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-      this.logger.log('Thread cleanup scheduler stopped');
-    }
-  }
-
-  private cleanupOldThreads() {
-    const now = new Date();
-    const ttlMs = THREAD_TTL_HOURS * 60 * 60 * 1000;
-    let cleanedCount = 0;
-
-    for (const [threadId, thread] of this.threads.entries()) {
-      const updatedAt = new Date(thread.updated_at);
-      if (now.getTime() - updatedAt.getTime() > ttlMs) {
-        this.threads.delete(threadId);
-        cleanedCount++;
-      }
-    }
-
-    if (cleanedCount > 0) {
-      this.logger.log(
-        `Cleaned up ${cleanedCount} old thread(s). Active threads: ${this.threads.size}`,
-      );
-    }
   }
 
   /**
    * Create a new conversation thread.
    * Returns LangGraph Platform Thread object.
    */
-  createThread(): ThreadInfo {
+  createThread(userId?: string): ThreadInfo {
     const threadId = randomUUID();
     const now = new Date().toISOString();
     const thread: ThreadInfo = {
       thread_id: threadId,
       created_at: now,
       updated_at: now,
-      metadata: {},
+      metadata: userId ? { userId } : {},
       status: 'idle',
       values: {},
     };
     this.threads.set(threadId, thread);
-    this.logger.log(`Created thread: ${threadId}`);
+    this.logger.log(
+      `Created thread: ${threadId}${userId ? ` for user: ${userId}` : ''}`,
+    );
     return thread;
   }
 
@@ -158,12 +133,58 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     threadId: string,
     input: Record<string, unknown>,
     config?: Record<string, unknown>,
+    userIdFromAuth?: string,
   ): AsyncGenerator<string> {
+    this.logger.log(
+      `[streamRun] Starting - threadId=${threadId}, userIdFromAuth=${userIdFromAuth}`,
+    );
+
     if (!this.graph) {
       throw new Error('Agent graph not initialized');
     }
 
-    // Ensure thread exists
+    let conversationId = config?.conversationId as string | undefined;
+    let userId = (config?.userId as string | undefined) || userIdFromAuth;
+
+    this.logger.log(
+      `[streamRun] conversationId=${conversationId}, userId=${userId}`,
+    );
+
+    if (!conversationId || !userId) {
+      this.logger.warn(
+        `[streamRun] No conversationId or userId in config, attempting to find conversation from threadId`,
+      );
+      try {
+        const conversation =
+          await this.chatService.getConversationByThreadId(threadId);
+        if (conversation) {
+          conversationId = conversation.id;
+          userId = conversation.userId;
+          this.logger.log(
+            `[streamRun] Found conversation: ${conversationId}, userId: ${userId}`,
+          );
+        } else if (userId) {
+          this.logger.warn(
+            `[streamRun] Creating new conversation for threadId=${threadId}, userId=${userId}`,
+          );
+          const newConv = await this.chatService.createConversation(
+            userId,
+            threadId,
+          );
+          conversationId = newConv.id;
+          this.logger.log(
+            `[streamRun] Created new conversation: ${conversationId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `[streamRun] Could not find conversation from threadId: ${(error as Error).message}`,
+        );
+      }
+    }
+
+    // Track thread in memory for API responses
+    // (Redis checkpointer handles actual state persistence)
     if (!this.threads.has(threadId)) {
       const now = new Date().toISOString();
       this.threads.set(threadId, {
@@ -175,15 +196,13 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
         values: {},
       });
     } else {
-      // Update last accessed time
       const thread = this.threads.get(threadId)!;
       thread.updated_at = new Date().toISOString();
       this.threads.set(threadId, thread);
     }
 
-    // With MemorySaver checkpointer, the graph persists conversation history
-    // per thread_id. We only need to send the NEW user message — the graph
-    // automatically includes previous messages from the checkpoint.
+    // With Redis checkpointer, the graph persists conversation history
+    // per thread_id. We only need to send the NEW user message.
     const inputMessages = input?.messages;
     const rawMessages = Array.isArray(inputMessages)
       ? (inputMessages as Array<string | { content?: string }>)
@@ -220,12 +239,8 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       );
 
       for await (const event of eventStream) {
-        // Serialize and patch: ensure response_metadata exists on chat model
-        // stream chunks (@ag-ui/langgraph accesses chunk.response_metadata.finish_reason)
         yield this.formatEventSSE(event);
 
-        // Track state from on_chain_end events that contain messages
-        // (the last one with messages is the final graph output)
         if (event.event === 'on_chain_end' && event.data?.output) {
           const output = event.data.output as Record<string, unknown>;
           if (output && Array.isArray(output.messages)) {
@@ -234,10 +249,8 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      const postProcessedState = await this.postProcessFinalState(lastState);
-
       // Emit final values with messages converted to simple format
-      const convertedState = this.convertStateMessages(postProcessedState);
+      const convertedState = this.convertStateMessages(lastState);
       yield this.formatSSE('values', convertedState);
 
       // Update stored thread state
@@ -249,10 +262,6 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       const err = error as Error;
       const isRecursionError = this.isGraphRecursionError(error);
-      const isParentCommandError =
-        err?.name === 'ParentCommand' ||
-        err?.message?.includes('ParentCommand') ||
-        err?.stack?.includes('ParentCommand');
 
       if (isRecursionError) {
         this.logger.warn(
@@ -272,9 +281,8 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
             },
           )) as Record<string, unknown>;
 
-          const postProcessedState =
-            await this.postProcessFinalState(fallbackState);
-          const convertedState = this.convertStateMessages(postProcessedState);
+          lastState = fallbackState;
+          const convertedState = this.convertStateMessages(fallbackState);
           yield this.formatSSE('values', convertedState);
 
           const thread = this.threads.get(threadId);
@@ -301,6 +309,7 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
               error: 'GRAPH_RECURSION_LIMIT',
             },
           };
+          lastState = gracefulState;
           const convertedState = this.convertStateMessages(gracefulState);
           yield this.formatSSE('values', convertedState);
 
@@ -309,40 +318,6 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
             thread.values = convertedState;
             thread.updated_at = new Date().toISOString();
           }
-        }
-      } else if (isParentCommandError) {
-        this.logger.warn(
-          'streamEvents hit ParentCommand control-flow error; retrying with invoke fallback',
-        );
-
-        try {
-          const fallbackState = (await this.graph.invoke(
-            { messages },
-            {
-              recursionLimit,
-              configurable: { thread_id: threadId, ...streamConfig },
-            },
-          )) as Record<string, unknown>;
-
-          const postProcessedState =
-            await this.postProcessFinalState(fallbackState);
-          const convertedState = this.convertStateMessages(postProcessedState);
-          yield this.formatSSE('values', convertedState);
-
-          const thread = this.threads.get(threadId);
-          if (thread) {
-            thread.values = convertedState;
-            thread.updated_at = new Date().toISOString();
-          }
-        } catch (fallbackError) {
-          const fallbackErr = fallbackError as Error;
-          this.logger.error(
-            `Agent fallback failed: ${fallbackErr.message}`,
-            fallbackErr.stack,
-          );
-          yield this.formatSSE('error', {
-            message: fallbackErr.message,
-          });
         }
       } else {
         this.logger.error(`Agent run failed: ${err.message}`, err.stack);
@@ -353,6 +328,35 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     }
 
     yield this.formatSSE('end', {});
+
+    this.logger.debug(
+      `[streamRun] Stream completed - conversationId=${conversationId}, userId=${userId}`,
+    );
+
+    if (conversationId && userId && this.chatService) {
+      try {
+        const messages =
+          (lastState?.messages as Array<Record<string, unknown>>) || [];
+
+        this.logger.debug(
+          `Saving AI response: ${messages.length} messages in lastState`,
+        );
+
+        const convertedMessages = messages.map((msg) =>
+          this.convertMessage(msg),
+        );
+        await this.chatService.saveAIResponseFromThread(
+          conversationId,
+          userId,
+          convertedMessages,
+        );
+        this.logger.log(`Saved AI messages to conversation ${conversationId}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to save AI response to DB: ${(error as Error).message}`,
+        );
+      }
+    }
   }
 
   private isGraphRecursionError(error: unknown): boolean {
@@ -390,94 +394,6 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     return false;
   }
 
-  private async postProcessFinalState(
-    state: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    if (!Array.isArray(state.messages) || state.messages.length === 0) {
-      return state;
-    }
-
-    const messages = [...state.messages] as unknown[];
-    const validIds = collectValidPgIds(messages);
-
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const candidate = messages[i];
-      if (!candidate || typeof candidate !== 'object') continue;
-      const msg = candidate as Record<string, unknown>;
-      const type = this.detectMessageType(msg);
-      if (type !== 'ai' || typeof msg.content !== 'string') continue;
-
-      let content = msg.content;
-      const tripJsonFromHistory = this.findLatestTripJsonBlock(messages);
-      const hasTripJsonInFinal = this.hasTripJsonBlock(content);
-      if (!hasTripJsonInFinal && tripJsonFromHistory) {
-        content = `${tripJsonFromHistory}\n\n${content}`;
-      }
-      if (!content.includes('```json')) continue;
-
-      if (validIds.size > 0) {
-        content = stripFakeItems(content, validIds);
-      }
-
-      content = stripDistantItems(content);
-      content = await fixThumbnailsInResponse(
-        content,
-        this.lookupThumbnails.bind(this),
-      );
-
-      const validated = await this.applyDeepValidation(content);
-      msg.content = validated;
-      messages[i] = msg;
-      break;
-    }
-
-    return { ...state, messages };
-  }
-
-  private hasTripJsonBlock(text: string): boolean {
-    const regex = /```(?:json)?\s*\n([\s\S]*?)```/g;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(text)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1]);
-        if (Array.isArray(parsed?.days)) {
-          return true;
-        }
-      } catch {
-        // Ignore invalid JSON blocks.
-      }
-    }
-    return false;
-  }
-
-  private findLatestTripJsonBlock(messages: unknown[]): string | null {
-    const regex = /```(?:json)?\s*\n([\s\S]*?)```/g;
-
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const candidate = messages[i];
-      if (!candidate || typeof candidate !== 'object') continue;
-      const msg = candidate as Record<string, unknown>;
-      if (this.detectMessageType(msg) !== 'ai') continue;
-      if (typeof msg.content !== 'string' || !msg.content.includes('```json')) {
-        continue;
-      }
-
-      let match: RegExpExecArray | null;
-      while ((match = regex.exec(msg.content)) !== null) {
-        try {
-          const parsed = JSON.parse(match[1]);
-          if (Array.isArray(parsed?.days)) {
-            return `\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``;
-          }
-        } catch {
-          // Ignore invalid JSON blocks.
-        }
-      }
-    }
-
-    return null;
-  }
-
   private detectMessageType(msg: Record<string, unknown>): string {
     if (!msg || typeof msg !== 'object') return '';
 
@@ -503,58 +419,6 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     }
 
     return '';
-  }
-
-  private async applyDeepValidation(content: string): Promise<string> {
-    const regex = /```(?:json)?\s*\n([\s\S]*?)```/g;
-    let result = content;
-    let match: RegExpExecArray | null;
-
-    while ((match = regex.exec(content)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1]);
-        if (!Array.isArray(parsed?.days)) continue;
-
-        const validation = await validateTripWithDeepAgent(parsed);
-        if (
-          validation?.isValid === false &&
-          validation.fixedTrip &&
-          Array.isArray(validation.fixedTrip.days)
-        ) {
-          // Restore lost fields from original parsed JSON to prevent deep agent from stripping them
-          const originalItemsMap = new Map();
-          for (const day of parsed.days || []) {
-            for (const item of day.items || []) {
-              if (item.pg_place_id) {
-                originalItemsMap.set(item.pg_place_id, item);
-              }
-            }
-          }
-
-          for (const day of validation.fixedTrip.days) {
-            if (!Array.isArray(day.items)) continue;
-            for (let i = 0; i < day.items.length; i++) {
-              const fixedItem = day.items[i];
-              if (
-                fixedItem.pg_place_id &&
-                originalItemsMap.has(fixedItem.pg_place_id)
-              ) {
-                day.items[i] = {
-                  ...originalItemsMap.get(fixedItem.pg_place_id),
-                  ...fixedItem,
-                };
-              }
-            }
-          }
-          const fixedBlock = `\`\`\`json\n${JSON.stringify(validation.fixedTrip, null, 2)}\n\`\`\``;
-          result = result.replace(match[0], fixedBlock);
-        }
-      } catch {
-        // Ignore parse errors and keep original content.
-      }
-    }
-
-    return result;
   }
 
   private async lookupThumbnails(

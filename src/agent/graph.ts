@@ -3,6 +3,7 @@ import { MemorySaver } from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import { createSupervisor } from '@langchain/langgraph-supervisor';
 import { ChatOpenAI } from '@langchain/openai';
+import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { ThumbnailLookupFn } from './types';
 
 const RECOMMEND_PROMPT = `You are the Recommendation Agent of TaluiThai AI.
@@ -422,6 +423,7 @@ export function buildTravelAgentGraph(
   tools: StructuredTool[],
   modelName = process.env.OPENROUTER_MODEL_NAME,
   lookupThumbnails?: ThumbnailLookupFn,
+  checkpointer?: BaseCheckpointSaver,
 ) {
   void lookupThumbnails;
 
@@ -497,7 +499,7 @@ export function buildTravelAgentGraph(
     supervisorName: 'supervisor',
   });
 
-  return workflow.compile({ checkpointer: new MemorySaver() });
+  return workflow.compile({ checkpointer: checkpointer ?? new MemorySaver() });
 }
 
 export type AgentGraph = ReturnType<typeof buildTravelAgentGraph>;

@@ -8,10 +8,20 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { AuthGuard } from '@nestjs/passport';
 import { AgentService, ThreadInfo } from './agent.service';
+
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    [key: string]: unknown;
+  };
+}
 
 /**
  * LangGraph Platform-compatible REST API.
@@ -19,6 +29,8 @@ import { AgentService, ThreadInfo } from './agent.service';
  */
 @ApiTags('agent')
 @Controller('agent')
+@UseGuards(AuthGuard('jwt'))
+@ApiBearerAuth()
 export class AgentController {
   private readonly logger = new Logger(AgentController.name);
 
@@ -28,9 +40,13 @@ export class AgentController {
 
   @Post('threads')
   @ApiOperation({ summary: 'Create a new conversation thread' })
-  createThread(@Body() body?: Record<string, unknown>) {
+  createThread(
+    @Req() req: AuthenticatedRequest,
+    @Body() body?: Record<string, unknown>,
+  ) {
     this.logger.log(`POST /threads body=${JSON.stringify(body)}`);
-    return this.agentService.createThread();
+    const userId = req.user.id;
+    return this.agentService.createThread(userId);
   }
 
   @Get('threads/:threadId')
@@ -54,6 +70,7 @@ export class AgentController {
   @Post('threads/:threadId/runs/stream')
   @ApiOperation({ summary: 'Stream a run on a thread (SSE)' })
   async streamRun(
+    @Req() req: AuthenticatedRequest,
     @Param('threadId') threadId: string,
     @Body()
     body: {
@@ -63,11 +80,13 @@ export class AgentController {
       stream_mode?: string | string[];
       metadata?: Record<string, unknown>;
       context?: Record<string, unknown>;
+      conversationId?: string;
     },
     @Res() res: Response,
   ) {
+    const userId = req.user.id;
     this.logger.log(
-      `POST /threads/${threadId}/runs/stream assistant=${body.assistant_id}`,
+      `POST /threads/${threadId}/runs/stream assistant=${body.assistant_id} userId=${userId}`,
     );
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -77,10 +96,17 @@ export class AgentController {
     res.flushHeaders();
 
     try {
+      const config = {
+        ...body.config,
+        conversationId: body.conversationId,
+        userId: userId,
+      };
+
       const stream = this.agentService.streamRun(
         threadId,
         body.input || {},
-        body.config,
+        config,
+        userId,
       );
 
       for await (const chunk of stream) {

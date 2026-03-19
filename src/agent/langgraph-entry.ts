@@ -19,6 +19,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import { buildTravelAgentGraph } from './graph.js';
 import { createSearchTools } from './tools/search.tools.js';
 import { createBudgetTools } from './tools/budget.tools.js';
+import { createRedisCheckpointer } from './checkpointer/redis-checkpointer.js';
 
 // ─── Env helpers ─────────────────────────────────────────────────────────────
 
@@ -357,8 +358,32 @@ async function lookupThumbnails(
 
 // ─── Build & export the compiled supervisor graph ────────────────────────────
 
+// ─── Tools (sync - for both CLI and NestJS) ───────────────────────────────────
+
 const tools = [
   ...createSearchTools(toolsServiceLike as any),
   ...createBudgetTools(),
 ];
-export const graph = buildTravelAgentGraph(tools, undefined, lookupThumbnails);
+
+// Sync export for LangGraph CLI (uses MemorySaver)
+import { MemorySaver } from '@langchain/langgraph-checkpoint';
+export const graph = buildTravelAgentGraph(tools, undefined, undefined);
+
+// ─── Async init with Redis (for NestJS) ───────────────────────────────────────
+
+export const graphPromise = (async () => {
+  try {
+    const checkpointer = await createRedisCheckpointer();
+    console.log('Redis checkpointer initialized for langgraph-entry');
+    return buildTravelAgentGraph(
+      tools,
+      undefined,
+      lookupThumbnails,
+      checkpointer,
+    );
+  } catch (error) {
+    console.error('Failed to initialize Redis checkpointer:', error);
+    console.log('Falling back to MemorySaver...');
+    return buildTravelAgentGraph(tools, undefined, lookupThumbnails);
+  }
+})();
