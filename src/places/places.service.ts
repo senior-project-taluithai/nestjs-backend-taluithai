@@ -741,24 +741,84 @@ export class PlacesService {
     });
   }
 
-  async getPopular(): Promise<Place[]> {
-    // 1. Get top trending places from TikTok in MongoDB
+  async getPopular(region?: RegionEnum): Promise<Place[]> {
     const limit = 10;
+
+    // 1. Filter by Region in Postgres if provided
+    let regionPgPlaceIds: string[] = [];
+    if (region) {
+      try {
+        const placesInRegion = await this.placesRepository
+          .createQueryBuilder('place')
+          .leftJoin('place.province', 'province')
+          .where('province.region_name = :region', { region })
+          .select(['place.id'])
+          .getMany();
+
+        regionPgPlaceIds = placesInRegion.map((p) => p.id.toString());
+
+        // If region is specified but no places found, return early or fallback
+        if (regionPgPlaceIds.length === 0) {
+          // Will be handled by the fallback logic at the end
+        }
+      } catch (error) {
+        this.logger.error(`Failed to fetch places by region: ${error.message}`);
+      }
+    }
+
+    // 2. Get top trending places from TikTok in MongoDB using Aggregation
     let trendingPlaceIds: number[] = [];
     try {
       const tiktokTrendsCol = this.mongoService.getCollection(
         'tiktok_trends',
         'taluithai',
       );
-      // Sort by trendScore or scrapedAt, we want the most recent trends
-      const recentTrends = await tiktokTrendsCol
-        .find()
-        .sort({ scrapedAt: -1, trendScore: -1 })
-        .limit(limit)
-        .toArray();
+
+      const matchStage: any = {
+        // Floor limit for Mainstream: Must have at least 50k views
+        'tiktokMetadata.views': { $gte: 50000 },
+        // STRICT ORIGIN FILTER: Do not allow places sourced from "hidden_gem" keywords
+        source_type: { $ne: 'hidden_gem' },
+      };
+
+      if (regionPgPlaceIds.length > 0) {
+        matchStage.placeId = { $in: regionPgPlaceIds };
+      }
+
+      const pipeline = [
+        { $match: matchStage },
+        {
+          $addFields: {
+            // Penalty Flag: Check if caption contains hidden gem keywords
+            isPenaltyWord: {
+              $regexMatch: {
+                input: { $ifNull: ['$tiktokMetadata.caption', ''] },
+                regex: /ลับ|unseen|คนยังไม่ค่อยรู้|ซ่อนตัว/i,
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            // Raw trending score logic: Penalty halves the score
+            adjustedTrendScore: {
+              $cond: [
+                '$isPenaltyWord',
+                { $multiply: ['$trendScore', 0.5] }, // Penalty for being 'hidden'
+                '$trendScore', // Full score for being mass
+              ],
+            },
+          },
+        },
+        // Sort strictly by the adjusted popularity score, not by scrape date
+        { $sort: { adjustedTrendScore: -1 } },
+        { $limit: limit },
+      ];
+
+      const popularTrends = await tiktokTrendsCol.aggregate(pipeline).toArray();
 
       // Extract placeIds
-      trendingPlaceIds = recentTrends
+      trendingPlaceIds = popularTrends
         .map((trend) => parseInt(trend.placeId, 10))
         .filter((id) => !isNaN(id));
     } catch (error) {
@@ -865,6 +925,16 @@ export class PlacesService {
       const matchStage: any = {
         // Ceiling and Floor limits for views to filter out mainstream places
         'tiktokMetadata.views': { $gte: 10000, $lte: 500000 },
+        // STRICT ORIGIN FILTER: Only allow places scraped via hidden gem keywords,
+        // OR places with strong hidden keywords in their caption even if they were mainstream
+        $or: [
+          { source_type: 'hidden_gem' },
+          {
+            'tiktokMetadata.caption': {
+              $regex: /ลับ|unseen|คนยังไม่ค่อยรู้|ซ่อนตัว|เปิดใหม่|เพิ่งเปิด/i,
+            },
+          },
+        ],
         // Ensure placeId matches what we got from PG (region filter applied here implicitly)
         placeId: { $in: pgPlaceIds.map((id) => id.toString()) },
       };
@@ -988,21 +1058,53 @@ export class PlacesService {
       }
     }
 
-    // Fallback if no hidden gems found
-    if (trendingPlaces.length === 0) {
-      return this.placesRepository.find({
-        take: limit,
-        order: { id: 'DESC' },
-        relations: [
-          'province',
-          'placeCategories',
-          'placeCategories.category',
-          'images',
-        ],
-      });
+    // 6. Fill with fallback places if we don't have enough trending hidden gems
+    const remainingCount = limit - trendingPlaces.length;
+    let fallbackPlaces: Place[] = [];
+
+    if (remainingCount > 0) {
+      const existingIds = trendingPlaces.map((p) => p.id);
+
+      try {
+        const subQuery = this.placesRepository
+          .createQueryBuilder('place')
+          .select('place.id')
+          .where('place.rating >= :rating', { rating: 4.0 })
+          .orderBy('RANDOM()')
+          .limit(remainingCount);
+
+        if (existingIds.length > 0) {
+          subQuery.andWhere('place.id NOT IN (:...existingIds)', {
+            existingIds,
+          });
+        }
+
+        if (region) {
+          subQuery.leftJoin('place.province', 'province');
+          subQuery.andWhere('province.region_name = :region', { region });
+        }
+
+        const randomPlaces = await subQuery.getMany();
+        const randomIds = randomPlaces.map((p) => p.id);
+
+        if (randomIds.length > 0) {
+          fallbackPlaces = await this.placesRepository.find({
+            where: { id: In(randomIds) },
+            relations: [
+              'province',
+              'placeCategories',
+              'placeCategories.category',
+              'images',
+            ],
+          });
+        }
+      } catch (err) {
+        this.logger.error(`Fallback error: ${err.message}`);
+        console.error('FALLBACK ERROR:', err);
+      }
     }
 
-    return trendingPlaces;
+    return [...trendingPlaces, ...fallbackPlaces];
   }
 
   async getBestSeason(): Promise<Place[]> {
