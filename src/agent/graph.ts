@@ -1,10 +1,15 @@
 import { StructuredTool } from '@langchain/core/tools';
-import { MemorySaver } from '@langchain/langgraph';
+import {
+  MemorySaver,
+  StateGraph,
+  MessagesAnnotation,
+} from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import { createSupervisor } from '@langchain/langgraph-supervisor';
 import { ChatOpenAI } from '@langchain/openai';
 import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { ThumbnailLookupFn } from './types';
+import { HumanMessage } from '@langchain/core/messages';
 
 const RECOMMEND_PROMPT = `You are the Recommendation Agent of TaluiThai AI.
 Your job is to suggest places in Thailand based on user preferences OR answer general info questions about places/events.
@@ -14,10 +19,12 @@ Your job is to suggest places in Thailand based on user preferences OR answer ge
 2. Use searchPlacesByKeyword for specific place names.
 3. Use findNearbyPlaces to find nearby restaurants, hotels, attractions.
 4. Use webSearch to get comprehensive info about places, events, or travel topics.
+5. Use searchHotels to find hotel accommodations with amenities.
 
 ## CRITICAL
 You MUST call search tools FIRST before responding. Do NOT make up place data.
-When presenting places to the user, ALWAYS include their images using markdown syntax: \`![Place Name](thumbnail)\` using the 'thumbnail' field returned from the tool.`;
+When presenting places to the user, ALWAYS include their images using markdown syntax: \`![Place Name](thumbnail)\` using the 'thumbnail' field returned from the tool.
+ALWAYS include ALL fields from tool responses - especially the 'amenities' array when presenting hotels. Do not omit any fields.`;
 
 const TRIP_PLANNER_PROMPT = `You are the Trip Planner specialist of TaluiThai AI.
 Your job is to create or MODIFY detailed day-by-day itineraries for trips in Thailand.
@@ -74,9 +81,9 @@ Your job is to estimate trip costs based on REAL PRICES from web search.
 ### STEP 1: Search for Real Prices (REQUIRED)
 Search for actual prices in the destination. Use webSearch for each category:
 
-1. **Accommodation**: Search "ราคาที่พัน [จังหวัด] โรงแรม 2024"
-2. **Food**: Search "ราคาอาหาร [จังหวัด] ร้านอาหารเฉลี่ย"
-3. **Transport**: Search "ค่าเดินทาง [จังหวัด] รถแดง รถตู้"
+1. **Accommodation**: Search "ราคาที่พัก [จังหังหวัด] โรงแรม 2024"
+2. **Food**: Search "ราคาอาหาร [จังหังหวัด] ร้านอาหารเฉลี่ย"
+3. **Transport**: Search "ค่าเดินทาง [จังหังหวัด] รถแดง รถตู้"
 4. **Activities**: Search "ค่าเข้าชม [จุดท่องเที่ยวยอดนิยม]"
 
 Search at least 2-3 categories before calculating budget.
@@ -88,7 +95,14 @@ Search at least 2-3 categories before calculating budget.
   - Mid-range: 3,000-5,000 THB/day
   - Comfortable: 5,000-8,000 THB/day
 
-### STEP 3: Generate Expenses Breakdown
+### STEP 3: Include Fuel Cost from Route Distance
+If the route_agent has provided total_driving_distance_km in the conversation, calculate fuel cost:
+- Gasoline 95 price: 33.05 THB/liter
+- Average consumption: ~10 km/liter (city driving)
+- Formula: fuel_cost = total_driving_distance_km / 10 * 33.05
+- Add this as "ค่าน้ำมัน" (fuel cost) in transport expenses
+
+### STEP 4: Generate Expenses Breakdown
 Break down ALL expenses by day and meal:
 
 **For accommodation (accommodation):**
@@ -102,7 +116,8 @@ Break down ALL expenses by day and meal:
 - Day 3: Breakfast, Lunch, Dinner
 
 **For transport:**
-- ค่ารถแดง, ค่าน้ำมัน, ค่าเดินทาง
+- ค่าน้ำมัน (fuel cost from route distance) - use "ค่าน้ำมัน" as expense name
+- ค่ารถแดง, ค่าเดินทาง
 
 **For activities:**
 - ค่าเข้าชม, ค่าทัวร์
@@ -113,7 +128,7 @@ Break down ALL expenses by day and meal:
 **For other:**
 - บริจาค, ทิป, ซิมการ์ด
 
-### STEP 4: Output JSON (CRITICAL)
+### STEP 5: Output JSON (CRITICAL)
 Return ONLY a JSON code block with this exact structure:
 
 \`\`\`json
@@ -163,32 +178,140 @@ Return ONLY a JSON code block with this exact structure:
 5. **End your turn after outputting the JSON** - do not add more text`;
 
 const ROUTE_PROMPT = `You are the Route Agent of TaluiThai AI.
-Optimize travel routes and calculate distances between places using calculateRoute.
-Use webSearch for up-to-date transport options and mention practical transport tips.`;
+Your job is to generate driving routes for multi-day trip itineraries.
+
+## CRITICAL: You MUST use the planRoute tool FIRST
+1. Look at the conversation history to find:
+   - The trip itinerary (places with lat/lng from trip_planner)
+   - The shortlisted hotels (from hotel_agent)
+2. Call planRoute with the places and hotels
+3. The planRoute tool will return route geometry and distances
+4. Output the EXACT JSON structure returned by planRoute
+
+## Step-by-Step Instructions
+1. Extract places and hotels from the conversation:
+   - Places should have: name, latitude, longitude, pg_place_id, category
+   - Hotels should have: name, latitude, longitude, rating, price_range
+2. IMPORTANT: Convert destination_province to ENGLISH (e.g., "กระบี่" → "Krabi", "ภูเก็ต" → "Phuket")
+3. Call planRoute with these inputs:
+   - user_location: {"latitude": 13.7563, "longitude": 100.5018} (Bangkok)
+   - destination_province: English province name (e.g., "Krabi")
+   - num_days: number of days in the trip
+   - places: array of place objects
+   - shortlisted_hotels: array of hotel objects
+4. Output ONLY the JSON code block with the planRoute response
+
+## Expected planRoute Input Example
+\`\`\`json
+{
+  "user_location": {"latitude": 13.7563, "longitude": 100.5018},
+  "destination_province": "Krabi",
+  "num_days": 3,
+  "places": [
+    {"name": "Krabi Thailand", "latitude": 8.032365, "longitude": 98.820466, "pg_place_id": 65353, "category": "สถานที่ท่องเที่ยว"},
+    {"name": "Madras Cafe Krabi", "latitude": 8.0322344, "longitude": 98.8239852, "pg_place_id": 50087, "category": "ร้านอาหาร"}
+  ],
+  "shortlisted_hotels": [
+    {"name": "Krabi Bloom House", "latitude": 8.0408561, "longitude": 98.9901993, "rating": 5, "price_range": "702 - 702"}
+  ]
+}
+\`\`\`
+
+## Expected JSON Output Structure (from planRoute tool)
+\`\`\`json
+{
+  "itinerary": [
+    {
+      "day": 1,
+      "transit_advice": "...",
+      "route": [
+        {"type": "start", "name": "...", "lat": ..., "lng": ...},
+        {"type": "place", "name": "...", "lat": ..., "lng": ..., "pg_place_id": ...},
+        {"type": "hotel", "name": "...", "lat": ..., "lng": ...}
+      ],
+      "daily_distance_km": 25.5,
+      "daily_duration_mins": 45,
+      "geometry": {"type": "LineString", "coordinates": [[lng, lat], ...]}
+    }
+  ],
+  "summary": {
+    "total_driving_distance_km": 85.2,
+    "total_driving_duration_mins": 150,
+    "hotels_used": [{"name": "...", "nights": 2}]
+  }
+}
+\`\`\`
+
+## CRITICAL RULES
+- You MUST call planRoute tool - do NOT generate fake route data
+- ALWAYS convert Thai province names to English (กระบี่ → Krabi, ภูเก็ต → Phuket, etc.)
+- If planRoute fails, report the error and do not make up data
+- Output ONLY the JSON code block - no text before, during, or after
+- Do not call calculateRoute unless explicitly asked for A-to-B routing
+- End your turn immediately after outputting the JSON code block`;
 
 const EVENT_PROMPT = `You are the Event Agent of TaluiThai AI.
 Find festivals and events with searchEvents and webSearch.
 List dates, location, and why worth attending.`;
 
+const HOTEL_PROMPT = `You are the Hotel Recommendation Agent of TaluiThai AI.
+Your job is to find hotels and accommodations in Thailand for trip itineraries.
+
+## Instructions
+1. Extract the destination province/area from the trip itinerary in the conversation.
+2. Use searchHotels tool to find hotels in that area.
+3. If the trip visits multiple areas, search for hotels in each area.
+4. Present results with all details including price range and booking links.
+
+## Output Format
+Return a JSON code block with hotels array:
+
+\`\`\`json
+{
+  "hotels": [
+    {
+      "name": "Hotel Name",
+      "address": "Hotel Address",
+      "latitude": 13.7563,
+      "longitude": 100.5018,
+      "rating": 4.5,
+      "reviewCount": 1250,
+      "priceRange": "฿1,500 - ฿3,000",
+      "thumbnail": "https://...",
+      "website": "https://hotel.com",
+      "bookingUrl": "https://booking.com/hotel"
+    }
+  ]
+}
+\`\`\`
+
+## CRITICAL
+- Use searchHotels tool to get real hotel data.
+- Do NOT make up hotel names, prices, or any data.
+- Present hotels clearly to the user with booking links.
+- End your turn after outputting the JSON block.`;
+
 const SUPERVISOR_PROMPT = `You are TaluiThai AI supervisor.
-Route tasks to these agents: recommend_agent, trip_planner, budget_agent, route_agent, event_agent.
+Route tasks to these agents: recommend_agent, trip_planner, hotel_agent, budget_agent, route_agent, event_agent.
 
 Rules:
 - Greeting only: respond directly.
 - For trip requests: route to trip_planner FIRST.
-- After trip_planner finishes, you MUST route to budget_agent to estimate costs.
+- After trip_planner finishes, you MUST route to hotel_agent to find accommodations.
+- After hotel_agent finishes, you MUST route to budget_agent to estimate costs.
 - The budget_agent MUST call the "generateItemizedBudget" tool - do not accept text/markdown budget output.
 - If budget_agent outputs text instead of calling the tool, tell it to call the tool.
 - Route/direction: route to route_agent.
 - Recommendation/info: route to recommend_agent.
 - Events/festivals: route to event_agent.
+- Hotel/accommodation requests: route to hotel_agent.
 
 CRITICAL INSTRUCTIONS FOR STOPPING:
 - You are the ONLY one who can end the conversation.
 - When the user's request has been fully answered by the agents, or if you have enough information to provide a final combined answer, you MUST STOP ROUTING.
 - To stop routing and finish the conversation, simply output your final conversational response to the user and DO NOT call any transfer tools.
 - NEVER hand off to the same specialist repeatedly for the same request.
-- Cap total specialist handoffs to 4 per user request; if this cap is reached, STOP ROUTING and finalize the response immediately.
+- Cap total specialist handoffs to 5 per user request; if this cap is reached, STOP ROUTING and finalize the response immediately.
 - Call at most ONE transfer_to_* tool per turn.`;
 
 const ALLOWED_THUMBNAIL_HOSTS = new Set([
@@ -438,13 +561,104 @@ export async function fixThumbnailsInResponse(
   return result;
 }
 
+// --- Intent Short-Circuit ---
+
+const TRIP_KEYWORDS = [
+  'trip',
+  'plan',
+  'itinerary',
+  'ทริป',
+  'แผนเที่ยว',
+  'วางแผน',
+  'แพลน',
+  'กี่วัน',
+  'day trip',
+  'จัดทริป',
+  'เที่ยว.*วัน',
+  'วัน.*เที่ยว',
+];
+const RECOMMEND_KEYWORDS = [
+  'แนะนำ',
+  'recommend',
+  'suggest',
+  'ที่เที่ยว',
+  'ที่กิน',
+  'ร้านอาหาร',
+  'คาเฟ่',
+  'สถานที่',
+];
+const ROUTE_KEYWORDS = [
+  'เส้นทาง',
+  'route',
+  'direction',
+  'ระยะทาง',
+  'ไปยังไง',
+  'ไปอย่างไร',
+  'การเดินทาง',
+];
+const EVENT_KEYWORDS = [
+  'เทศกาล',
+  'festival',
+  'event',
+  'งาน',
+  'อีเวนต์',
+  'ประเพณี',
+];
+const HOTEL_KEYWORDS = [
+  'hotel',
+  'โรงแรม',
+  'ที่พัก',
+  'accommodation',
+  'resort',
+  'เกสต์เฮาส์',
+  'เรสเตอร์รอง',
+  'แคมป์',
+  'camping',
+  'ห้องพัก',
+  'ย่าน',
+  'เซอร์วิสอพาร์ทเมนท์',
+];
+
+function detectIntent(
+  text: string,
+): 'trip' | 'recommend' | 'route' | 'event' | 'hotel' | 'ambiguous' {
+  const lower = text.toLowerCase();
+
+  const matchCount = (keywords: string[]) =>
+    keywords.filter((kw) => new RegExp(kw, 'i').test(lower)).length;
+
+  const tripScore = matchCount(TRIP_KEYWORDS);
+  const recommendScore = matchCount(RECOMMEND_KEYWORDS);
+  const routeScore = matchCount(ROUTE_KEYWORDS);
+  const eventScore = matchCount(EVENT_KEYWORDS);
+  const hotelScore = matchCount(HOTEL_KEYWORDS);
+
+  const maxScore = Math.max(
+    tripScore,
+    recommendScore,
+    routeScore,
+    eventScore,
+    hotelScore,
+  );
+  if (maxScore === 0) return 'ambiguous';
+
+  if (tripScore === maxScore && tripScore > recommendScore) return 'trip';
+  if (recommendScore === maxScore && recommendScore > tripScore)
+    return 'recommend';
+  if (routeScore === maxScore) return 'route';
+  if (eventScore === maxScore) return 'event';
+  if (hotelScore === maxScore && hotelScore > 0) return 'hotel';
+
+  return 'ambiguous';
+}
+
 export function buildTravelAgentGraph(
   tools: StructuredTool[],
   modelName = process.env.OPENROUTER_MODEL_NAME,
-  lookupThumbnails?: ThumbnailLookupFn,
+  _lookupThumbnails?: ThumbnailLookupFn,
   checkpointer?: BaseCheckpointSaver,
 ) {
-  void lookupThumbnails;
+  void _lookupThumbnails;
 
   const model = new ChatOpenAI({
     modelName,
@@ -453,6 +667,18 @@ export function buildTravelAgentGraph(
     modelKwargs: {
       parallel_tool_calls: false,
     },
+    configuration: {
+      baseURL:
+        process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    },
+    apiKey: process.env.OPENROUTER_API_KEY,
+  });
+
+  const supervisorModel = new ChatOpenAI({
+    modelName:
+      process.env.OPENROUTER_SUPERVISOR_MODEL || 'google/gemini-2.0-flash-001',
+    temperature: 0,
+    maxTokens: 512,
     configuration: {
       baseURL:
         process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
@@ -478,7 +704,11 @@ export function buildTravelAgentGraph(
 
   const tripPlanner = createAgent({
     model,
-    tools: pick('searchPlacesSemantic', 'searchPlacesByKeyword'),
+    tools: pick(
+      'searchPlacesSemantic',
+      'searchPlacesByKeyword',
+      'searchEvents',
+    ),
     name: 'trip_planner',
     systemPrompt: TRIP_PLANNER_PROMPT,
   });
@@ -492,7 +722,12 @@ export function buildTravelAgentGraph(
 
   const routeAgent = createAgent({
     model,
-    tools: pick('calculateRoute', 'searchPlacesSemantic', 'webSearch'),
+    tools: pick(
+      'calculateRoute',
+      'planRoute',
+      'searchPlacesSemantic',
+      'webSearch',
+    ),
     name: 'route_agent',
     systemPrompt: ROUTE_PROMPT,
   });
@@ -504,21 +739,164 @@ export function buildTravelAgentGraph(
     systemPrompt: EVENT_PROMPT,
   });
 
-  const workflow = createSupervisor({
+  const hotelAgent = createAgent({
+    model,
+    tools: pick('searchHotels'),
+    name: 'hotel_agent',
+    systemPrompt: HOTEL_PROMPT,
+  });
+
+  const supervisorGraph = createSupervisor({
     agents: [
       recommendAgent.graph,
       tripPlanner.graph,
+      hotelAgent.graph,
       budgetAgent.graph,
       routeAgent.graph,
       eventAgent.graph,
     ] as any[],
-    llm: model,
+    llm: supervisorModel,
     prompt: SUPERVISOR_PROMPT,
     outputMode: 'last_message',
     supervisorName: 'supervisor',
   });
 
-  return workflow.compile({ checkpointer: checkpointer ?? new MemorySaver() });
+  const compiledSupervisor = supervisorGraph.compile({
+    checkpointer: checkpointer ?? new MemorySaver(),
+  });
+
+  const compiledTripPlanner = tripPlanner.graph;
+  const compiledBudgetAgent = budgetAgent.graph;
+  const compiledRecommendAgent = recommendAgent.graph;
+  const compiledRouteAgent = routeAgent.graph;
+  const compiledEventAgent = eventAgent.graph;
+  const compiledHotelAgent = hotelAgent.graph;
+
+  // Intent short-circuit using custom StateGraph
+  const intentGraph = new StateGraph(MessagesAnnotation)
+    .addNode('intentRouter', async (state) => {
+      const lastMessage = state.messages[state.messages.length - 1];
+      const content =
+        typeof lastMessage?.content === 'string' ? lastMessage.content : '';
+      const intent = detectIntent(content);
+
+      return {
+        messages: [
+          new HumanMessage({
+            content: `__intent__:${intent}`,
+            id: 'intent-marker',
+          }),
+        ],
+      };
+    })
+    .addNode('tripPipeline', async (state) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+
+      // Run trip_planner → hotel_agent → route_agent → budget_agent sequentially
+      const tripResult = await compiledTripPlanner.invoke({ messages });
+      const hotelResult = await compiledHotelAgent.invoke({
+        messages: tripResult.messages,
+      });
+      // Route agent generates GeoJSON and calculates driving distances
+      const routeResult = await compiledRouteAgent.invoke({
+        messages: hotelResult.messages,
+      });
+      const budgetResult = await compiledBudgetAgent.invoke({
+        messages: routeResult.messages,
+      });
+
+      return { messages: budgetResult.messages };
+    })
+    .addNode('hotelPipeline', async (state) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+      const result = await compiledHotelAgent.invoke({ messages });
+      return { messages: result.messages };
+    })
+    .addNode('recommendPipeline', async (state) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+      const result = await compiledRecommendAgent.invoke({ messages });
+      return { messages: result.messages };
+    })
+    .addNode('routePipeline', async (state) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+      const result = await compiledRouteAgent.invoke({ messages });
+      return { messages: result.messages };
+    })
+    .addNode('eventPipeline', async (state) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+      const result = await compiledEventAgent.invoke({ messages });
+      return { messages: result.messages };
+    })
+    .addNode('supervisorFallback', async (state) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+      const result = await compiledSupervisor.invoke({ messages });
+      return { messages: result.messages };
+    })
+    .addEdge('__start__', 'intentRouter')
+    .addConditionalEdges('intentRouter', (state) => {
+      const intentMsg = state.messages.find(
+        (m) =>
+          typeof m.content === 'string' && m.content.startsWith('__intent__:'),
+      );
+      const intent = intentMsg
+        ? (intentMsg.content as string).replace('__intent__:', '')
+        : 'ambiguous';
+
+      switch (intent) {
+        case 'trip':
+          return 'tripPipeline';
+        case 'recommend':
+          return 'recommendPipeline';
+        case 'route':
+          return 'routePipeline';
+        case 'event':
+          return 'eventPipeline';
+        case 'hotel':
+          return 'hotelPipeline';
+        default:
+          return 'supervisorFallback';
+      }
+    })
+    .addEdge('tripPipeline', '__end__')
+    .addEdge('recommendPipeline', '__end__')
+    .addEdge('routePipeline', '__end__')
+    .addEdge('eventPipeline', '__end__')
+    .addEdge('hotelPipeline', '__end__')
+    .addEdge('supervisorFallback', '__end__');
+
+  return intentGraph.compile({
+    checkpointer: checkpointer ?? new MemorySaver(),
+  });
 }
 
 export type AgentGraph = ReturnType<typeof buildTravelAgentGraph>;

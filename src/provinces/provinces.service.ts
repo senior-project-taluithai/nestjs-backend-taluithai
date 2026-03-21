@@ -19,6 +19,13 @@ export class ProvincesService {
     return this.provincesRepository.findOne({ where: { id } });
   }
 
+  async findByNameEn(name: string): Promise<Province | null> {
+    return this.provincesRepository
+      .createQueryBuilder('p')
+      .where('LOWER(p.name_en) = LOWER(:name)', { name })
+      .getOne();
+  }
+
   async create(createProvinceDto: CreateProvinceDto): Promise<Province> {
     const newProvince = this.provincesRepository.create(createProvinceDto);
     return this.provincesRepository.save(newProvince);

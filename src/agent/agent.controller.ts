@@ -176,8 +176,33 @@ export class AgentController {
     return {
       graph_id: 'travel_agent',
       schemas: {
-        state_schema: {},
-        config_schema: {},
+        state_schema: {
+          type: 'object',
+          properties: {
+            messages: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  role: { type: 'string' },
+                  content: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        config_schema: {
+          type: 'object',
+          properties: {
+            configurable: {
+              type: 'object',
+              properties: {
+                userId: { type: 'string' },
+                conversationId: { type: 'string' },
+              },
+            },
+          },
+        },
       },
     };
   }
