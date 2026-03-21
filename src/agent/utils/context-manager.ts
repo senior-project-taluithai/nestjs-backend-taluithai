@@ -5,7 +5,7 @@ import {
   SystemMessage,
 } from '@langchain/core/messages';
 
-const DEFAULT_MAX_TOKENS = 8000;
+const DEFAULT_MAX_TOKENS = 16000;
 const TOKENS_PER_CHAR_APPROX = 4;
 const MIN_MESSAGES_TO_KEEP = 4;
 const SYSTEM_MESSAGE_PRIORITY = 1;

@@ -220,7 +220,7 @@ export class ToolsService {
 
     const url =
       `https://router.project-osrm.org/route/v1/driving/${coords}` +
-      `?overview=full&geometries=geojson&steps=false`;
+      `?overview=simplified&geometries=geojson&steps=false`;
 
     const response = await fetch(url);
 
@@ -271,7 +271,7 @@ export class ToolsService {
 
     const params = new URLSearchParams({
       geometries: 'geojson',
-      overview: 'full',
+      overview: 'simplified',
       roundtrip: String(options.roundtrip ?? false),
       source: options.source ?? 'first',
     });

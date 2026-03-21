@@ -11,7 +11,7 @@ export function createRoutePlannerTools(
       'Generate an optimized multi-day driving itinerary. Groups places into days ' +
       'using geographic clustering, optimizes visit order per day using OSRM TSP, ' +
       'and matches the closest hotel for each night. Returns per-day routes with ' +
-      'GeoJSON geometry and distance/duration totals. Use after trip_planner has ' +
+      'distance/duration totals. Use after trip_planner has ' +
       'selected places and user has chosen hotels.',
     schema: z.object({
       user_location: z.object({
@@ -62,7 +62,21 @@ export function createRoutePlannerTools(
           places: input.places,
           shortlisted_hotels: input.shortlisted_hotels,
         });
-        return JSON.stringify(result);
+
+        // Strip geometry to avoid token bloat — frontend gets it
+        // via direct REST call to POST /route-planner/plan
+        const lightweight = {
+          itinerary: result.itinerary.map((day) => ({
+            day: day.day,
+            transit_advice: day.transit_advice,
+            route: day.route,
+            daily_distance_km: day.daily_distance_km,
+            daily_duration_mins: day.daily_duration_mins,
+          })),
+          summary: result.summary,
+        };
+
+        return JSON.stringify(lightweight);
       } catch (error) {
         const err = error as Error;
         return JSON.stringify({

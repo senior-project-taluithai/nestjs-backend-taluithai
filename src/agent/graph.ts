@@ -185,7 +185,7 @@ Your job is to generate driving routes for multi-day trip itineraries.
    - The trip itinerary (places with lat/lng from trip_planner)
    - The shortlisted hotels (from hotel_agent)
 2. Call planRoute with the places and hotels
-3. The planRoute tool will return route geometry and distances
+3. The planRoute tool will return route stops and distances (geometry is handled separately)
 4. Output the EXACT JSON structure returned by planRoute
 
 ## Step-by-Step Instructions
@@ -230,8 +230,7 @@ Your job is to generate driving routes for multi-day trip itineraries.
         {"type": "hotel", "name": "...", "lat": ..., "lng": ...}
       ],
       "daily_distance_km": 25.5,
-      "daily_duration_mins": 45,
-      "geometry": {"type": "LineString", "coordinates": [[lng, lat], ...]}
+      "daily_duration_mins": 45
     }
   ],
   "summary": {
@@ -247,6 +246,7 @@ Your job is to generate driving routes for multi-day trip itineraries.
 - ALWAYS convert Thai province names to English (กระบี่ → Krabi, ภูเก็ต → Phuket, etc.)
 - If planRoute fails, report the error and do not make up data
 - Output ONLY the JSON code block - no text before, during, or after
+- The geometry field is omitted from the tool response (frontend fetches it separately). Do NOT fabricate geometry data.
 - Do not call calculateRoute unless explicitly asked for A-to-B routing
 - End your turn immediately after outputting the JSON code block`;
 
@@ -663,7 +663,7 @@ export function buildTravelAgentGraph(
   const model = new ChatOpenAI({
     modelName,
     temperature: 0.3,
-    maxTokens: 4000,
+    maxTokens: 8000,
     modelKwargs: {
       parallel_tool_calls: false,
     },
@@ -678,7 +678,7 @@ export function buildTravelAgentGraph(
     modelName:
       process.env.OPENROUTER_SUPERVISOR_MODEL || 'google/gemini-2.0-flash-001',
     temperature: 0,
-    maxTokens: 512,
+    maxTokens: 1024,
     configuration: {
       baseURL:
         process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',

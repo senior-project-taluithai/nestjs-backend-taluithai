@@ -99,7 +99,7 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
               link: p.link || hotel.bookingUrl || '',
             })),
             imageUrls: (hotel.imageUrls || []).slice(0, 3),
-            amenities: hotel.amenities || [],
+            amenities: (hotel.amenities || []).slice(0, 10),
           }),
         );
 
