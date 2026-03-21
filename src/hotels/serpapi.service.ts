@@ -17,16 +17,33 @@ export interface SerpApiHotelResult {
 @Injectable()
 export class SerpApiService {
   private readonly logger = new Logger(SerpApiService.name);
-  private readonly apiKey: string;
+  private readonly apiKeys: string[] = [];
+  private keyIndex = 0;
   private readonly baseUrl = 'https://serpapi.com/search';
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('SERPAPI_API_KEY', '');
-    if (!this.apiKey) {
+    const key1 = this.configService.get<string>('SERPAPI_API_KEY_TAR_KU', '');
+    const key2 = this.configService.get<string>('SERPAPI_API_KEY_TAR_IN', '');
+
+    if (key1) this.apiKeys.push(key1);
+    if (key2) this.apiKeys.push(key2);
+
+    if (this.apiKeys.length === 0) {
       this.logger.warn(
-        'SERPAPI_API_KEY not configured - SerpAPI fallback will be unavailable',
+        'No SerpAPI keys configured - SerpAPI will be unavailable',
+      );
+    } else {
+      this.logger.log(
+        `Loaded ${this.apiKeys.length} SerpAPI keys for round-robin`,
       );
     }
+  }
+
+  private getNextKey(): string {
+    if (this.apiKeys.length === 0) return '';
+    const key = this.apiKeys[this.keyIndex];
+    this.keyIndex = (this.keyIndex + 1) % this.apiKeys.length;
+    return key;
   }
 
   async searchHotels(options: {
@@ -37,10 +54,12 @@ export class SerpApiService {
     currency?: string;
     maxResults?: number;
   }): Promise<ScrapedHotel[]> {
-    if (!this.apiKey) {
-      this.logger.warn('SerpAPI key not configured');
+    if (this.apiKeys.length === 0) {
+      this.logger.warn('SerpAPI keys not configured');
       return [];
     }
+
+    const apiKey = this.getNextKey();
 
     const {
       location,
@@ -66,11 +85,14 @@ export class SerpApiService {
       currency,
       gl: 'us',
       hl: 'en',
-      api_key: this.apiKey,
+      api_key: apiKey,
     });
 
     const url = `${this.baseUrl}?${params.toString()}`;
-    this.logger.log(`Calling SerpAPI: ${url.replace(this.apiKey, '***')}`);
+    const keyPrefix = apiKey.substring(0, 8);
+    this.logger.log(
+      `Calling SerpAPI with key ${keyPrefix}...: ${url.replace(apiKey, '***')}`,
+    );
 
     try {
       const response = await fetch(url, {
@@ -124,15 +146,26 @@ export class SerpApiService {
           const hotel: ScrapedHotel = {
             name: item.name || item.title || 'Unknown Hotel',
             address: item.address || item.full_address || '',
-            latitude: item.gps_coordinates?.latitude || item.coordinates?.latitude || 0,
-            longitude: item.gps_coordinates?.longitude || item.coordinates?.longitude || 0,
+            latitude:
+              item.gps_coordinates?.latitude || item.coordinates?.latitude || 0,
+            longitude:
+              item.gps_coordinates?.longitude ||
+              item.coordinates?.longitude ||
+              0,
             rating: item.overall_rating || item.rating || item.hotel_class || 0,
-            reviewCount: typeof item.reviews === 'number' ? item.reviews : parseInt(item.reviews || '0', 10),
+            reviewCount:
+              typeof item.reviews === 'number'
+                ? item.reviews
+                : parseInt(item.reviews || '0', 10),
             phone: item.phone_number || '',
             thumbnail: firstImage,
             website: item.website || '',
             bookingUrl: item.link || item.booking_link || '',
-            priceRange: item.rate_per_night?.lowest || item.total_rate?.lowest || item.price || '',
+            priceRange:
+              item.rate_per_night?.lowest ||
+              item.total_rate?.lowest ||
+              item.price ||
+              '',
             prices: this.extractPrices(item),
             photos: imageUrls,
             imageUrls,

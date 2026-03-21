@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ToolsService } from '../tools/tools.service';
 import { ProvincesService } from '../provinces/provinces.service';
+import { RoutePlansService } from './route-plans.service';
 import { haversineKm } from './utils/haversine';
 import { kMeans, Cluster } from './utils/kmeans';
 import { getTransitHub } from './utils/thai-transit-hubs';
@@ -24,6 +25,7 @@ export class RoutePlannerService {
   constructor(
     private readonly toolsService: ToolsService,
     private readonly provincesService: ProvincesService,
+    private readonly routePlansService: RoutePlansService,
   ) {}
 
   async planRoute(
@@ -50,7 +52,22 @@ export class RoutePlannerService {
     // === Build Summary ===
     const summary = this.buildSummary(itinerary);
 
-    return { itinerary, summary };
+    // === Persist Route Plan ===
+    const savedPlan = await this.routePlansService.saveRoutePlan(
+      undefined,
+      undefined,
+      request,
+      {
+        itinerary,
+        summary,
+      },
+    );
+
+    return {
+      planId: savedPlan.id,
+      itinerary,
+      summary,
+    };
   }
 
   // ─── Step 2.1: Start Point Logic ────────────────────────────────

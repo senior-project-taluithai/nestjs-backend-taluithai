@@ -57,7 +57,21 @@ export class HotelsScraperService {
   async searchHotels(options: SearchHotelsOptions): Promise<ScrapedHotel[]> {
     const { maxResults = 10 } = options;
 
-    // Try Playwright scraping first
+    // 1. Try SerpAPI first (fast, reliable)
+    try {
+      this.logger.log('Trying SerpAPI first...');
+      const serpapiHotels = await this.serpApiService.searchHotels(options);
+      if (serpapiHotels.length > 0) {
+        this.logger.log(`SerpAPI returned ${serpapiHotels.length} hotels`);
+        await this.upsertHotels(serpapiHotels);
+        return serpapiHotels;
+      }
+    } catch (err) {
+      this.logger.warn(`SerpAPI failed: ${(err as Error).message}`);
+    }
+
+    // 2. Fallback to Playwright scraping (slower but may get more details)
+    this.logger.log('Falling back to Playwright scraping...');
     try {
       const playwrightHotels = await this.scrapeWithPlaywright(options);
       if (playwrightHotels.length > 0) {
@@ -68,19 +82,7 @@ export class HotelsScraperService {
       this.logger.warn(`Playwright scraping failed: ${(err as Error).message}`);
     }
 
-    // Fallback to SerpAPI
-    this.logger.log('Falling back to SerpAPI...');
-    try {
-      const serpapiHotels = await this.serpApiService.searchHotels(options);
-      if (serpapiHotels.length > 0) {
-        await this.upsertHotels(serpapiHotels);
-        return serpapiHotels;
-      }
-    } catch (err) {
-      this.logger.warn(`SerpAPI fallback failed: ${(err as Error).message}`);
-    }
-
-    // Final fallback to database
+    // 3. Final fallback to database
     this.logger.log('Falling back to database...');
     try {
       const dbHotels = await this.fallbackFromDatabase(

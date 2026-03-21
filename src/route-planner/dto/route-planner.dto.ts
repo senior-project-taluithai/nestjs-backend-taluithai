@@ -139,6 +139,24 @@ export interface RoutePlannerSummary {
 }
 
 export interface RoutePlannerResponseDto {
+  planId?: number;
   itinerary: ItineraryDay[];
   summary: RoutePlannerSummary;
+}
+
+export interface RoutePlanResponseDto {
+  id: number;
+  destinationProvince: string;
+  numDays: number;
+  dayGeometries: {
+    day: number;
+    geometry: GeoJSON.LineString;
+  }[];
+  routeData: {
+    itinerary: Omit<ItineraryDay, 'geometry'>[];
+    summary: RoutePlannerSummary;
+  };
+  totalDistanceKm: number;
+  totalDurationMins: number;
+  createdAt: Date;
 }
