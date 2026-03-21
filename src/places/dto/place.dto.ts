@@ -83,8 +83,21 @@ export class PlaceDto {
   @ApiProperty({ name: 'review_count', example: 10 })
   reviewCount: number;
 
+  @Expose({ name: 'is_trending' })
+  @ApiProperty({ name: 'is_trending', example: true, required: false })
+  isTrending?: boolean;
+
   constructor(partial: Partial<PlaceDto>) {
     Object.assign(this, partial);
+
+    // Override thumbnail_url with the first available image in the gallery
+    // since some default thumbnail_urls are broken/blank white images
+    if (this.imageUrls && this.imageUrls.length > 0) {
+      const validImg = this.imageUrls.find((url) => url && url.trim() !== '');
+      if (validImg) {
+        this.thumbnailUrl = validImg;
+      }
+    }
   }
 }
 
@@ -97,5 +110,13 @@ export class PlaceDetailDto extends PlaceDto {
   constructor(partial: Partial<PlaceDetailDto>) {
     super(partial);
     Object.assign(this, partial);
+
+    // Override thumbnail_url with the first available image in the gallery
+    if (this.imageUrls && this.imageUrls.length > 0) {
+      const validImg = this.imageUrls.find((url) => url && url.trim() !== '');
+      if (validImg) {
+        this.thumbnailUrl = validImg;
+      }
+    }
   }
 }

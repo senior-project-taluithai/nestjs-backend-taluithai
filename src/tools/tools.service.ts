@@ -10,7 +10,12 @@ import { CategoriesService } from '../categories/categories.service';
 import { Place, BestSeasonEnum } from '../places/entities/place.entity';
 import { PlaceCategory } from '../places/entities/place-category.entity';
 import { Category } from '../categories/entities/category.entity';
-import { RouteRequestDto, RouteResponse } from './dto/route.dto';
+import {
+  RouteRequestDto,
+  RouteResponse,
+  OsrmTripOptions,
+  OsrmTripResponse,
+} from './dto/route.dto';
 
 @Injectable()
 export class ToolsService {
@@ -105,9 +110,22 @@ export class ToolsService {
   > {
     const results = await this.qdrantService.search(query, { limit });
 
+    // Debug: log unique source_collection values
+    const uniqueCollections = [
+      ...new Set(results.map((r) => r.source_collection)),
+    ];
+    this.logger.debug(
+      `Qdrant results source_collections: ${uniqueCollections.join(', ')}`,
+    );
+
+    // Filter out hotels - they are now in separate hotels table
+    const filtered = results.filter(
+      (r) => r.source_collection?.toLowerCase() !== 'hotel',
+    );
+
     // Enrich with PG place_id by matching name + approximate coordinates
     const enriched = await Promise.all(
-      results.map(async (r) => {
+      filtered.map(async (r) => {
         try {
           if (!r.title || !r.latitude || !r.longitude) return r;
 
@@ -202,7 +220,7 @@ export class ToolsService {
 
     const url =
       `https://router.project-osrm.org/route/v1/driving/${coords}` +
-      `?overview=full&geometries=geojson&steps=false`;
+      `?overview=simplified&geometries=geojson&steps=false`;
 
     const response = await fetch(url);
 
@@ -235,6 +253,79 @@ export class ToolsService {
         duration_minutes: Math.round(leg.duration / 60),
       })),
     };
+  }
+
+  // ==================== Trip Optimization (OSRM Trip API / TSP) ====================
+
+  async osrmTrip(
+    dto: RouteRequestDto,
+    options: OsrmTripOptions = {},
+  ): Promise<OsrmTripResponse> {
+    if (dto.waypoints.length < 2) {
+      throw new Error('At least 2 waypoints are required');
+    }
+
+    const coords = dto.waypoints
+      .map((wp) => `${wp.longitude},${wp.latitude}`)
+      .join(';');
+
+    const params = new URLSearchParams({
+      geometries: 'geojson',
+      overview: 'simplified',
+      roundtrip: String(options.roundtrip ?? false),
+      source: options.source ?? 'first',
+    });
+    if (options.destination) {
+      params.set('destination', options.destination);
+    }
+
+    const url = `https://router.project-osrm.org/trip/v1/driving/${coords}?${params.toString()}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+
+      if (!response.ok) {
+        throw new Error(`OSRM Trip request failed: ${response.status}`);
+      }
+
+      const data = (await response.json()) as {
+        code: string;
+        trips: {
+          distance: number;
+          duration: number;
+          geometry: { type: string; coordinates: [number, number][] };
+          legs: { distance: number; duration: number }[];
+        }[];
+        waypoints: {
+          waypoint_index: number;
+          location: [number, number];
+          name: string;
+          distance: number;
+        }[];
+      };
+
+      if (data.code !== 'Ok' || !data.trips || data.trips.length === 0) {
+        throw new Error(`OSRM Trip returned no trips: ${data.code}`);
+      }
+
+      const trip = data.trips[0];
+
+      return {
+        distance_km: Math.round((trip.distance / 1000) * 100) / 100,
+        duration_minutes: Math.round(trip.duration / 60),
+        geometry: trip.geometry,
+        legs: trip.legs.map((leg) => ({
+          distance_km: Math.round((leg.distance / 1000) * 100) / 100,
+          duration_minutes: Math.round(leg.duration / 60),
+        })),
+        waypoints: data.waypoints,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   // ==================== MongoDB → PostgreSQL Sync ====================

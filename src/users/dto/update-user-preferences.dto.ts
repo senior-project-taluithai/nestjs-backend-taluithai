@@ -1,4 +1,5 @@
-import { IsArray, IsNumber, IsNotEmpty } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsInt, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateUserPreferencesDto {
@@ -8,6 +9,8 @@ export class UpdateUserPreferencesDto {
     type: [Number],
   })
   @IsArray()
-  @IsNumber({}, { each: true })
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
   preferenceIds: number[];
 }

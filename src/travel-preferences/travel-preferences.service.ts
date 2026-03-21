@@ -1,17 +1,37 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TravelPreference } from './entities/travel-preference.entity';
 
+const DEFAULT_TRAVEL_PREFERENCE_NAMES = [
+  'วัดและโบราณสถาน',
+  'ภูเขาและป่าไม้',
+  'ทะเลและชายหาด',
+  'อาหารท้องถิ่น',
+  'ธรรมชาติ',
+  'ผจญภัย',
+  'วัฒนธรรม',
+  'ถ่ายรูป',
+  'เทศกาล',
+  'Hidden Gem',
+];
+
 @Injectable()
-export class TravelPreferencesService {
+export class TravelPreferencesService implements OnModuleInit {
+  private readonly logger = new Logger(TravelPreferencesService.name);
+
   constructor(
     @InjectRepository(TravelPreference)
     private travelPreferencesRepository: Repository<TravelPreference>,
   ) {}
 
+  async onModuleInit(): Promise<void> {
+    await this.ensureDefaultPreferences();
+  }
+
   async findAll(): Promise<TravelPreference[]> {
-    return this.travelPreferencesRepository.find();
+    await this.ensureDefaultPreferences();
+    return this.travelPreferencesRepository.find({ order: { id: 'ASC' } });
   }
 
   async create(name: string): Promise<TravelPreference> {
@@ -20,19 +40,47 @@ export class TravelPreferencesService {
   }
 
   async createMany(names: string[]): Promise<TravelPreference[]> {
-    const preferences = names.map((name) =>
-      this.travelPreferencesRepository.create({ name }),
+    if (names.length === 0) {
+      return [];
+    }
+
+    const normalizedNames = Array.from(
+      new Set(
+        names.map((name) => name.trim()).filter((name) => name.length > 0),
+      ),
     );
-    // Use ignore to skip duplicates if name is unique constraint, or logic to filter.
-    // Assuming simple save for now. If unique constraint exists, it might fail.
-    // Let's check entities. name is unique.
-    // safe insert would be better or just let it fail/partial.
-    // For simplicity, we can do upsert or check existing.
-    // Let's do simple save, if duplicates it throws. User can handle.
-    return this.travelPreferencesRepository.save(preferences);
+
+    if (normalizedNames.length === 0) {
+      return [];
+    }
+
+    const existing = await this.travelPreferencesRepository.find({
+      where: normalizedNames.map((name) => ({ name })),
+    });
+    const existingSet = new Set(existing.map((row) => row.name));
+
+    const toCreate = normalizedNames
+      .filter((name) => !existingSet.has(name))
+      .map((name) => this.travelPreferencesRepository.create({ name }));
+
+    if (toCreate.length > 0) {
+      await this.travelPreferencesRepository.save(toCreate);
+    }
+
+    return this.travelPreferencesRepository.find({ order: { id: 'ASC' } });
   }
 
   async findOne(id: number): Promise<TravelPreference | null> {
     return this.travelPreferencesRepository.findOne({ where: { id } });
+  }
+
+  private async ensureDefaultPreferences(): Promise<void> {
+    const count = await this.travelPreferencesRepository.count();
+    if (count > 0) {
+      return;
+    }
+
+    await this.createMany(DEFAULT_TRAVEL_PREFERENCE_NAMES);
+    this.logger.log('Seeded default travel preferences');
   }
 }

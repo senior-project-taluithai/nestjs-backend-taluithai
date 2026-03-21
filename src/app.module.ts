@@ -20,6 +20,7 @@ import { ToolsModule } from './tools/tools.module';
 import { AgentModule } from './agent/agent.module';
 import { InteractionsModule } from './interactions/interactions.module';
 import { ChatModule } from './chat/chat.module';
+import { RoutePlannerModule } from './route-planner/route-planner.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { ChatModule } from './chat/chat.module';
     AgentModule,
     InteractionsModule,
     ChatModule,
+    RoutePlannerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

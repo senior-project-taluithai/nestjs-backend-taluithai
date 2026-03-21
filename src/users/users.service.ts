@@ -4,6 +4,15 @@ import { Repository, In } from 'typeorm';
 import { User } from './entities/user.entity';
 import { TravelPreference } from '../travel-preferences/entities/travel-preference.entity';
 
+const VALID_REGIONS = new Set([
+  'North',
+  'South',
+  'Northeast',
+  'Central',
+  'East',
+  'West',
+]);
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -93,7 +102,13 @@ export class UsersService {
       user.preferredCategoryIds = preferredCategoryIds;
     }
     if (preferredRegions !== undefined) {
-      user.preferredRegions = preferredRegions;
+      user.preferredRegions = Array.from(
+        new Set(
+          preferredRegions
+            .map((region) => region.trim())
+            .filter((region) => VALID_REGIONS.has(region)),
+        ),
+      );
     }
 
     await this.usersRepository.save(user);

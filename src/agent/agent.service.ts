@@ -8,17 +8,30 @@ import {
 import { ToolsService } from '../tools/tools.service';
 import { PlacesService } from '../places/places.service';
 import { ChatService } from '../chat/chat.service';
+import { HotelsScraperService } from '../hotels/hotels-scraper.service';
 import { createSearchTools } from './tools/search.tools';
 import { createBudgetTools } from './tools/budget.tools';
+import { createHotelTools } from './tools/hotel.tools';
+import { createRoutePlannerTools } from './tools/route-planner.tools';
+import { RoutePlannerService } from '../route-planner/route-planner.service';
 import { createRedisCheckpointer } from './checkpointer/redis-checkpointer';
-import { AgentGraph, buildTravelAgentGraph } from './graph';
-import { HumanMessage } from '@langchain/core/messages';
+import {
+  AgentGraph,
+  buildTravelAgentGraph,
+  collectValidPgIds,
+  stripFakeItems,
+  stripDistantItems,
+  fixThumbnailsInResponse,
+} from './graph';
+import { HumanMessage, BaseMessage } from '@langchain/core/messages';
 import { randomUUID } from 'crypto';
 import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
+import { truncateMessagesIfNeeded } from './utils/context-manager';
 
-const DEFAULT_RECURSION_LIMIT = 80;
+// Phase 1.2: Lower recursion limits to prevent runaway loops
+const DEFAULT_RECURSION_LIMIT = 25;
 const MIN_RECURSION_LIMIT = 10;
-const MAX_RECURSION_LIMIT = 240;
+const MAX_RECURSION_LIMIT = 50;
 
 export interface ThreadInfo {
   thread_id: string;
@@ -41,6 +54,8 @@ export class AgentService implements OnModuleInit {
     private readonly placesService: PlacesService,
     @Inject(forwardRef(() => ChatService))
     private readonly chatService: ChatService,
+    private readonly hotelsScraperService: HotelsScraperService,
+    private readonly routePlannerService: RoutePlannerService,
   ) {}
 
   async onModuleInit() {
@@ -67,11 +82,13 @@ export class AgentService implements OnModuleInit {
     const tools = [
       ...createSearchTools(this.toolsService),
       ...createBudgetTools(),
+      ...createHotelTools(this.hotelsScraperService),
+      ...createRoutePlannerTools(this.routePlannerService),
     ];
     this.graph = buildTravelAgentGraph(
       tools,
       undefined,
-      this.lookupThumbnails.bind(this),
+      undefined,
       this.checkpointer,
     );
     this.logger.log(
@@ -217,6 +234,17 @@ export class AgentService implements OnModuleInit {
     // Emit metadata event
     yield this.formatSSE('metadata', { run_id: runId });
 
+    // Phase 5.2: Truncate messages if conversation is long
+    const truncationResult = truncateMessagesIfNeeded(
+      messages as BaseMessage[],
+    );
+    if (truncationResult.wasTruncated) {
+      this.logger.log(
+        `[streamRun] Truncated ${truncationResult.removedCount} messages (est. ${truncationResult.estimatedTokens} tokens)`,
+      );
+    }
+    const truncatedMessages = truncationResult.messages;
+
     let lastState: Record<string, unknown> = {};
     const streamConfig = { ...(config ?? {}) };
     const parsedRecursionLimit = Number(streamConfig.recursionLimit);
@@ -230,7 +258,7 @@ export class AgentService implements OnModuleInit {
 
     try {
       const eventStream = this.graph.streamEvents(
-        { messages },
+        { messages: truncatedMessages },
         {
           version: 'v2',
           recursionLimit,
@@ -248,6 +276,9 @@ export class AgentService implements OnModuleInit {
           }
         }
       }
+
+      // Phase 3: Post-processing validation pipeline
+      lastState = await this.postProcessState(lastState);
 
       // Emit final values with messages converted to simple format
       const convertedState = this.convertStateMessages(lastState);
@@ -430,6 +461,85 @@ export class AgentService implements OnModuleInit {
       map.set(p.id, p.thumbnailUrl || '');
     }
     return map;
+  }
+
+  /**
+   * Phase 3: Post-process agent output to fix thumbnails, strip fake/distant items.
+   */
+  private async postProcessState(
+    state: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const messages = state.messages as unknown[] | undefined;
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return state;
+    }
+
+    // Find last AI message content
+    const lastAiContent = this.getLastAiContent(messages);
+    if (!lastAiContent) return state;
+
+    try {
+      const validIds = collectValidPgIds(messages);
+      let fixed = stripFakeItems(lastAiContent, validIds);
+      fixed = stripDistantItems(fixed);
+      fixed = await fixThumbnailsInResponse(
+        fixed,
+        this.lookupThumbnails.bind(this),
+      );
+
+      if (fixed !== lastAiContent) {
+        this.replaceLastAiContent(messages, fixed);
+        this.logger.log('[postProcess] Applied validation fixes to response');
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[postProcess] Validation failed (non-fatal): ${(error as Error).message}`,
+      );
+    }
+
+    return state;
+  }
+
+  private getLastAiContent(messages: unknown[]): string | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i] as Record<string, unknown>;
+      const msgType = this.detectMessageType(msg);
+      if (msgType === 'ai' && typeof msg.content === 'string' && msg.content) {
+        return msg.content;
+      }
+      // Check kwargs for serialized format
+      if (
+        msg.kwargs &&
+        typeof (msg.kwargs as Record<string, unknown>).content === 'string'
+      ) {
+        const kwargsContent = (msg.kwargs as Record<string, unknown>)
+          .content as string;
+        if (kwargsContent && this.detectMessageType(msg) === 'ai') {
+          return kwargsContent;
+        }
+      }
+    }
+    return null;
+  }
+
+  private replaceLastAiContent(messages: unknown[], newContent: string): void {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i] as Record<string, unknown>;
+      const msgType = this.detectMessageType(msg);
+      if (msgType === 'ai') {
+        if (typeof msg.content === 'string') {
+          msg.content = newContent;
+          return;
+        }
+        if (
+          msg.kwargs &&
+          typeof (msg.kwargs as Record<string, unknown>).content === 'string'
+        ) {
+          (msg.kwargs as Record<string, unknown>).content = newContent;
+          return;
+        }
+      }
+    }
   }
 
   /**

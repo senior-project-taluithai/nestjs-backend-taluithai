@@ -9,19 +9,10 @@ import {
 } from 'typeorm';
 import { Expose } from 'class-transformer';
 import { Province } from '../../provinces/entities/province.entity';
-import { PlaceReview } from './place-review.entity';
-import { PlaceImage } from './place-image.entity';
-import { PlaceCategory } from './place-category.entity';
+import { HotelImage } from './hotel-image.entity';
 
-export enum BestSeasonEnum {
-  SUMMER = 'summer',
-  WINTER = 'winter',
-  RAINY = 'rainy',
-  ALL_YEAR = 'all_year',
-}
-
-@Entity('places')
-export class Place {
+@Entity('hotels')
+export class Hotel {
   @PrimaryGeneratedColumn()
   @Expose()
   id: number;
@@ -36,17 +27,21 @@ export class Place {
 
   @Column({ nullable: true })
   @Expose()
+  address: string;
+
+  @Column({ nullable: true })
+  @Expose()
   detail: string;
 
   @Column({ name: 'detail_en', nullable: true })
   @Expose({ name: 'detail_en' })
   detailEn: string;
 
-  @Column({ name: 'province_id' })
+  @Column({ name: 'province_id', nullable: true })
   @Expose({ name: 'province_id' })
   provinceId: number;
 
-  @ManyToOne(() => Province)
+  @ManyToOne(() => Province, { nullable: true })
   @JoinColumn({ name: 'province_id' })
   @Expose()
   province: Province;
@@ -58,14 +53,6 @@ export class Place {
   @Column({ type: 'float' })
   @Expose()
   longitude: number;
-
-  @Column({
-    type: 'enum',
-    enum: BestSeasonEnum,
-    name: 'best_season',
-  })
-  @Expose({ name: 'best_season' })
-  bestSeason: BestSeasonEnum;
 
   @Column({ type: 'float', default: 0 })
   @Expose()
@@ -83,29 +70,32 @@ export class Place {
   @Expose({ name: 'thumbnail_url' })
   thumbnailUrl: string;
 
-  @OneToMany(() => PlaceImage, (image) => image.place, { cascade: true })
+  @Column({ nullable: true })
   @Expose()
-  images: PlaceImage[];
+  website: string;
 
-  @OneToMany(() => PlaceCategory, (placeCategory) => placeCategory.place, {
-    cascade: true,
-  })
-  @Expose({ name: 'place_categories' })
-  placeCategories: PlaceCategory[];
+  @Column({ name: 'booking_url', nullable: true })
+  @Expose({ name: 'booking_url' })
+  bookingUrl: string;
 
-  @OneToMany(() => PlaceReview, (review) => review.place)
+  @Column({ name: 'price_range', nullable: true })
+  @Expose({ name: 'price_range' })
+  priceRange: string;
+
+  @Column({ name: 'phone', nullable: true })
   @Expose()
-  reviews: PlaceReview[];
+  phone: string;
 
-  reviewCount?: number;
+  @Column({ type: 'simple-array', nullable: true })
+  @Expose()
+  amenities: string[];
 
-  @Expose({ name: 'is_trending' })
-  isTrending?: boolean;
+  @OneToMany(() => HotelImage, (image) => image.hotel, { cascade: true })
+  @Expose()
+  images: HotelImage[];
 
   @AfterLoad()
   updateThumbnailFromImages() {
-    // Override thumbnail_url with the first available image in the gallery
-    // since some default thumbnail_urls are broken/blank white images
     if (this.images && this.images.length > 0) {
       const validImg = this.images.find(
         (img) => img.url && img.url.trim() !== '',

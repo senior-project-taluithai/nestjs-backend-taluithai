@@ -1,13 +1,14 @@
 import {
   Controller,
   Get,
+  Query,
+  Request,
+  UseGuards,
   Post,
   Body,
   Param,
   UseInterceptors,
   ClassSerializerInterceptor,
-  Query,
-  UseGuards,
   Req,
 } from '@nestjs/common';
 import { PlacesService } from './places.service';
@@ -19,6 +20,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { PlaceDto, PlaceDetailDto } from './dto/place.dto';
+import { RegionEnum } from '../provinces/entities/province.entity';
 import { PlaceFilterDto } from './dto/place-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 import { OptionalJwtGuard } from '../auth/guards/optional-jwt.guard';
@@ -56,13 +58,39 @@ export class PlacesController {
     let engagement;
 
     if (req.user?.id) {
-      const [prefs, eng] = await Promise.all([
+      const [prefs, eng, recentSignals, travelPrefs] = await Promise.all([
         this.usersService.getRecommendationPreferences(req.user.id),
         this.interactionsService.getUserEngagement(req.user.id),
+        this.interactionsService.getUserRecentRecommendationSignals(
+          req.user.id,
+        ),
+        this.usersService.getUserPreferences(req.user.id),
       ]);
       preferredCategoryIds = prefs.preferredCategoryIds;
       preferredRegions = prefs.preferredRegions;
       engagement = eng;
+
+      const baseQuery =
+        travelPrefs && travelPrefs.length > 0
+          ? travelPrefs.map((p) => p.name).join(' ')
+          : 'สถานที่ท่องเที่ยว';
+
+      const places = await this.placesService.getRecommended(
+        baseQuery,
+        preferredCategoryIds,
+        preferredRegions,
+        engagement,
+        recentSignals,
+      );
+      return places.map(
+        (p) =>
+          new PlaceDto({
+            ...p,
+            categories:
+              p.placeCategories?.map((pc) => pc.category.nameEn) || [],
+            imageUrls: p.images?.map((i) => i.url) || [],
+          }),
+      );
     }
 
     const places = await this.placesService.getRecommended(
@@ -136,14 +164,28 @@ export class PlacesController {
 
   @Get('hidden-gems')
   @UseInterceptors(ClassSerializerInterceptor)
-  @ApiOperation({ summary: 'Get hidden gem places' })
+  @UseGuards(OptionalJwtGuard)
+  @ApiOperation({
+    summary: 'Get hidden gem places with optional personalization',
+  })
+  @ApiQuery({
+    name: 'region',
+    enum: RegionEnum,
+    required: false,
+    description: 'Filter by region',
+  })
   @ApiResponse({
     status: 200,
-    description: 'Return hidden gem places.',
+    description:
+      'Return personalized hidden gem places based on user preferences and region.',
     type: [PlaceDto],
   })
-  async getHiddenGems() {
-    const places = await this.placesService.getHiddenGems();
+  async getHiddenGems(
+    @Query('region') region?: RegionEnum,
+    @Request() req?: any,
+  ) {
+    const userId = req?.user?.id;
+    const places = await this.placesService.getHiddenGems(region, userId);
     return places.map(
       (p) =>
         new PlaceDto({

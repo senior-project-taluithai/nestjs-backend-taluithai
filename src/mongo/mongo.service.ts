@@ -52,7 +52,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return this.db;
   }
 
-  getCollection<T extends Document = Document>(name: string): Collection<T> {
+  getCollection<T extends Document = Document>(
+    name: string,
+    overrideDbName?: string,
+  ): Collection<T> {
+    if (overrideDbName) {
+      return this.client.db(overrideDbName).collection<T>(name);
+    }
     return this.db.collection<T>(name);
   }
 
