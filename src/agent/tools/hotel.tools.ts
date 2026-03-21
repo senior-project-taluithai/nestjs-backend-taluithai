@@ -31,6 +31,16 @@ interface MappedHotel {
   amenities: string[];
 }
 
+function stripQueryParams(url: string): string {
+  if (!url) return '';
+  try {
+    const idx = url.indexOf('?');
+    return idx > 0 ? url.substring(0, idx) : url;
+  } catch {
+    return url;
+  }
+}
+
 export function createHotelTools(hotelsScraperService: HotelsScraperService) {
   const searchHotels = new DynamicStructuredTool({
     name: 'searchHotels',
@@ -91,12 +101,12 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
             reviewCount: hotel.reviewCount,
             priceRange: hotel.priceRange || '',
             thumbnail: hotel.thumbnail || '',
-            website: hotel.website || '',
-            bookingUrl: hotel.bookingUrl || '',
+            website: stripQueryParams(hotel.website || ''),
+            bookingUrl: stripQueryParams(hotel.bookingUrl || ''),
             prices: (hotel.prices || []).slice(0, 3).map((p) => ({
               provider: p.provider,
               price: p.price,
-              link: p.link || hotel.bookingUrl || '',
+              link: stripQueryParams(p.link || hotel.bookingUrl || ''),
             })),
             imageUrls: (hotel.imageUrls || []).slice(0, 3),
             amenities: (hotel.amenities || []).slice(0, 10),

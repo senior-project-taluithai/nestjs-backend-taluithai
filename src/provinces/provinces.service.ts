@@ -20,9 +20,17 @@ export class ProvincesService {
   }
 
   async findByNameEn(name: string): Promise<Province | null> {
-    return this.provincesRepository
+    // Try exact match first
+    const exact = await this.provincesRepository
       .createQueryBuilder('p')
       .where('LOWER(p.name_en) = LOWER(:name)', { name })
+      .getOne();
+    if (exact) return exact;
+
+    // Fallback to LIKE match
+    return this.provincesRepository
+      .createQueryBuilder('p')
+      .where('LOWER(p.name_en) LIKE LOWER(:name)', { name: `%${name}%` })
       .getOne();
   }
 

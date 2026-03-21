@@ -60,8 +60,8 @@ export class SerpApiService {
     const params = new URLSearchParams({
       engine: 'google_hotels',
       q: location,
-      check_in: checkIn,
-      check_out: checkOut,
+      check_in_date: checkIn,
+      check_out_date: checkOut,
       adults: adults.toString(),
       currency,
       gl: 'us',
@@ -112,21 +112,30 @@ export class SerpApiService {
 
       for (const item of limitedResults) {
         try {
+          const firstImage =
+            item.images?.[0]?.thumbnail ||
+            item.images?.[0]?.original_image ||
+            item.thumbnail ||
+            '';
+          const imageUrls = (item.images || []).map(
+            (img: any) => img.original_image || img.thumbnail || img,
+          );
+
           const hotel: ScrapedHotel = {
-            name: item.title || item.name || 'Unknown Hotel',
+            name: item.name || item.title || 'Unknown Hotel',
             address: item.address || item.full_address || '',
-            latitude: item.coordinates?.latitude || item.lat || 0,
-            longitude: item.coordinates?.longitude || item.lng || 0,
-            rating: parseFloat(item.rating || '0'),
-            reviewCount: parseInt(item.reviews || '0', 10),
+            latitude: item.gps_coordinates?.latitude || item.coordinates?.latitude || 0,
+            longitude: item.gps_coordinates?.longitude || item.coordinates?.longitude || 0,
+            rating: item.overall_rating || item.rating || item.hotel_class || 0,
+            reviewCount: typeof item.reviews === 'number' ? item.reviews : parseInt(item.reviews || '0', 10),
             phone: item.phone_number || '',
-            thumbnail: item.thumbnail || item.images?.[0] || '',
+            thumbnail: firstImage,
             website: item.website || '',
             bookingUrl: item.link || item.booking_link || '',
-            priceRange: item.price || item.price_per_night || '',
+            priceRange: item.rate_per_night?.lowest || item.total_rate?.lowest || item.price || '',
             prices: this.extractPrices(item),
-            photos: item.images || [],
-            imageUrls: item.images || [],
+            photos: imageUrls,
+            imageUrls,
             url: item.link || '',
             amenities: this.extractAmenities(item),
           };
@@ -149,34 +158,45 @@ export class SerpApiService {
     const prices: { provider: string; price: number; link: string }[] = [];
 
     try {
-      if (item.rate_per_night) {
+      // SerpAPI returns rate_per_night as { lowest: "฿1,234", extracted_lowest: 1234 }
+      const ratePerNight = item.rate_per_night?.extracted_lowest;
+      if (ratePerNight && !isNaN(ratePerNight)) {
+        prices.push({
+          provider: 'Google Hotels',
+          price: ratePerNight,
+          link: item.link || '',
+        });
+      } else if (item.rate_per_night?.lowest) {
         const priceValue = parseFloat(
-          String(item.rate_per_night).replace(/[^0-9.]/g, ''),
+          String(item.rate_per_night.lowest).replace(/[^0-9.]/g, ''),
         );
         if (!isNaN(priceValue)) {
           prices.push({
-            provider: 'SerpAPI',
+            provider: 'Google Hotels',
             price: priceValue,
-            link: item.link || item.booking_link || '',
+            link: item.link || '',
           });
         }
       }
 
-      if (item.booking_offers && Array.isArray(item.booking_offers)) {
-        for (const offer of item.booking_offers.slice(0, 3)) {
-          const priceValue = parseFloat(
-            String(offer.price || offer.rate_per_night || '0').replace(
-              /[^0-9.]/g,
-              '',
-            ),
-          );
-          if (!isNaN(priceValue)) {
-            prices.push({
-              provider: offer.provider || 'Booking',
-              price: priceValue,
-              link: offer.link || item.link || '',
-            });
-          }
+      // total_rate for multi-night stays
+      const totalRate = item.total_rate?.extracted_lowest;
+      if (totalRate && !isNaN(totalRate)) {
+        prices.push({
+          provider: 'Google Hotels',
+          price: totalRate,
+          link: item.link || '',
+        });
+      } else if (item.total_rate?.lowest) {
+        const totalRateValue = parseFloat(
+          String(item.total_rate.lowest).replace(/[^0-9.]/g, ''),
+        );
+        if (!isNaN(totalRateValue)) {
+          prices.push({
+            provider: 'Google Hotels',
+            price: totalRateValue,
+            link: item.link || '',
+          });
         }
       }
     } catch (err) {

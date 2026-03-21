@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ToolsService } from '../tools/tools.service';
 import { ProvincesService } from '../provinces/provinces.service';
 import { haversineKm } from './utils/haversine';
@@ -63,33 +63,55 @@ export class RoutePlannerService {
       request.destination_province,
     );
 
-    if (!province) {
-      throw new NotFoundException(
-        `Province not found: ${request.destination_province}`,
+    if (province) {
+      const distToProvince = haversineKm(
+        request.user_location.latitude,
+        request.user_location.longitude,
+        province.latitude,
+        province.longitude,
       );
-    }
 
-    const distToProvince = haversineKm(
-      request.user_location.latitude,
-      request.user_location.longitude,
-      province.latitude,
-      province.longitude,
-    );
+      if (distToProvince < NEARBY_THRESHOLD_KM) {
+        return {
+          startPoint: {
+            name: 'Your Location',
+            latitude: request.user_location.latitude,
+            longitude: request.user_location.longitude,
+          },
+          transitAdvice: null,
+        };
+      }
 
-    if (distToProvince < NEARBY_THRESHOLD_KM) {
+      // Far away — use transit hub
+      const hub = getTransitHub(request.destination_province);
+      if (hub) {
+        return {
+          startPoint: {
+            name: hub.name,
+            latitude: hub.latitude,
+            longitude: hub.longitude,
+          },
+          transitAdvice: hub.advice,
+        };
+      }
+
+      // No known hub — use province center
       return {
         startPoint: {
-          name: 'Your Location',
-          latitude: request.user_location.latitude,
-          longitude: request.user_location.longitude,
+          name: `${request.destination_province} Center`,
+          latitude: province.latitude,
+          longitude: province.longitude,
         },
-        transitAdvice: null,
+        transitAdvice: `Travel to ${request.destination_province} by bus or plane`,
       };
     }
 
-    // Far away — use transit hub
-    const hub = getTransitHub(request.destination_province);
+    // Province not found in DB — fallback to transit hub or place centroid
+    this.logger.warn(
+      `Province "${request.destination_province}" not found in DB, using fallback`,
+    );
 
+    const hub = getTransitHub(request.destination_province);
     if (hub) {
       return {
         startPoint: {
@@ -101,12 +123,18 @@ export class RoutePlannerService {
       };
     }
 
-    // No known hub — use province center as fallback
+    // Last resort: use centroid of input places
+    const places = request.places;
+    const centroidLat =
+      places.reduce((sum, p) => sum + p.latitude, 0) / places.length;
+    const centroidLng =
+      places.reduce((sum, p) => sum + p.longitude, 0) / places.length;
+
     return {
       startPoint: {
-        name: `${request.destination_province} Center`,
-        latitude: province.latitude,
-        longitude: province.longitude,
+        name: `${request.destination_province} Area`,
+        latitude: centroidLat,
+        longitude: centroidLng,
       },
       transitAdvice: `Travel to ${request.destination_province} by bus or plane`,
     };
