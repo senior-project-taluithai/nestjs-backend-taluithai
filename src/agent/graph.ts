@@ -9,7 +9,9 @@ import { createSupervisor } from '@langchain/langgraph-supervisor';
 import { ChatOpenAI } from '@langchain/openai';
 import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { ThumbnailLookupFn } from './types';
-import { HumanMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage } from '@langchain/core/messages';
+import { RoutePlannerService } from '../route-planner/route-planner.service';
+import { computeBudget } from './utils/thai-price-table';
 
 const RECOMMEND_PROMPT = `You are the Recommendation Agent of TaluiThai AI.
 Your job is to suggest places in Thailand based on user preferences OR answer general info questions about places/events.
@@ -35,7 +37,7 @@ Your job is to create or MODIFY detailed day-by-day itineraries for trips in Tha
 3. Every place MUST come from tool results and include real pg_place_id, latitude, longitude.
 4. Keep the itinerary compact: max 4 items per day.
 5. Provide realistic schedule: Calculate realistic "startTime" and "endTime" (e.g. "09:00", "10:30") for each place. Do NOT assign the same time slot to multiple places. Allow time for travel between places.
-6. **EVENTS**: If user mentions events OR if there are upcoming events in the destination province, use searchEvents tool to find them and include in itinerary.
+6. **EVENTS**: You MUST call searchEvents once for the destination province to check for upcoming events/festivals. Pass the province name and trip date range (startDate, endDate in YYYY-MM-DD). If events are found during the trip dates, include 1-2 relevant ones in the itinerary as items with "type": "event" and "event_id".
 7. EXTREMELY IMPORTANT: Once the itinerary is ready, output the JSON block and END YOUR TURN. Do NOT continue to call tools after generating the JSON. DO NOT over-search.
 
 ## CRITICAL OUTPUT FORMAT
@@ -257,10 +259,10 @@ Find festivals and events with searchEvents and webSearch.
 List dates, location, and why worth attending.`;
 
 const HOTEL_PROMPT = `You are the Hotel Recommendation Agent of TaluiThai AI.
-Your job is to find hotels and accommodations in Thailand for trip itineraries.
+Your job is to find hotels and accommodations in Thailand.
 
 ## Instructions
-1. Extract the destination province/area from the trip itinerary in the conversation.
+1. Extract the destination province/area from the user's message (e.g. "plan 3 day trip to Krabi" → "Krabi").
 2. Call searchHotels EXACTLY ONCE with the English province name and maxResults: 5.
 3. Output ONLY the JSON code block — no summary, no recap, no additional text.
 
@@ -649,11 +651,140 @@ function detectIntent(
   return 'ambiguous';
 }
 
+// --- Deterministic extraction for route planning (replaces route_agent LLM) ---
+
+interface ExtractedRouteInput {
+  user_location: { latitude: number; longitude: number };
+  destination_province: string;
+  num_days: number;
+  places: Array<{
+    name: string;
+    latitude: number;
+    longitude: number;
+    pg_place_id?: number;
+    category?: string;
+  }>;
+  shortlisted_hotels: Array<{
+    name: string;
+    latitude: number;
+    longitude: number;
+    hotel_id?: number;
+    rating?: number;
+    price_range?: string;
+  }>;
+}
+
+function extractMessageContent(msg: unknown): string {
+  const m = msg as Record<string, unknown>;
+  if (typeof m.content === 'string') return m.content;
+  if (
+    m.kwargs &&
+    typeof (m.kwargs as Record<string, unknown>).content === 'string'
+  ) {
+    return (m.kwargs as Record<string, unknown>).content as string;
+  }
+  return '';
+}
+
+function extractRouteInput(messages: unknown[]): ExtractedRouteInput | null {
+  let tripJson: Record<string, unknown> | null = null;
+  let hotelJson: Record<string, unknown> | null = null;
+
+  // Scan messages from end to find the most recent trip and hotel JSON blocks
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = extractMessageContent(messages[i]);
+    if (!content) continue;
+
+    const blocks = parseJsonCodeBlocks(content);
+    for (const block of blocks) {
+      if (
+        !tripJson &&
+        Array.isArray(block.parsed.days) &&
+        block.parsed.days.length > 0
+      ) {
+        tripJson = block.parsed;
+      }
+      if (
+        !hotelJson &&
+        Array.isArray(block.parsed.hotels) &&
+        block.parsed.hotels.length > 0
+      ) {
+        hotelJson = block.parsed;
+      }
+    }
+    if (tripJson && hotelJson) break;
+  }
+
+  if (!tripJson || !hotelJson) return null;
+
+  const days = tripJson.days as Array<{
+    items?: Array<Record<string, unknown>>;
+  }>;
+  const province = (tripJson.province as string) || 'Bangkok';
+  const numDays = days.length;
+
+  // Extract places from all days
+  const places: ExtractedRouteInput['places'] = [];
+  for (const day of days) {
+    for (const item of day.items ?? []) {
+      if (
+        typeof item.latitude === 'number' &&
+        typeof item.longitude === 'number' &&
+        typeof item.name === 'string'
+      ) {
+        places.push({
+          name: item.name,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          pg_place_id:
+            typeof item.pg_place_id === 'number' ? item.pg_place_id : undefined,
+          category:
+            typeof item.category === 'string' ? item.category : undefined,
+        });
+      }
+    }
+  }
+
+  // Extract hotels
+  const rawHotels = (hotelJson.hotels as Array<Record<string, unknown>>) || [];
+  const shortlistedHotels: ExtractedRouteInput['shortlisted_hotels'] = rawHotels
+    .filter(
+      (h) => typeof h.latitude === 'number' && typeof h.longitude === 'number',
+    )
+    .map((h) => ({
+      name: (h.name as string) || 'Hotel',
+      latitude: h.latitude as number,
+      longitude: h.longitude as number,
+      rating: typeof h.rating === 'number' ? h.rating : undefined,
+      price_range: typeof h.priceRange === 'string' ? h.priceRange : undefined,
+    }));
+
+  if (places.length === 0 || shortlistedHotels.length === 0) return null;
+
+  return {
+    user_location: { latitude: 13.7563, longitude: 100.5018 }, // Bangkok default
+    destination_province: province,
+    num_days: numDays,
+    places,
+    shortlisted_hotels: shortlistedHotels,
+  };
+}
+
+/**
+ * Extract the lowest numeric price from a hotel priceRange string like "฿1,500 - ฿3,000"
+ */
+function parseHotelPrice(priceRange: string | undefined): number | null {
+  if (!priceRange) return null;
+  const match = priceRange.replace(/,/g, '').match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
 export function buildTravelAgentGraph(
   tools: StructuredTool[],
   modelName = process.env.OPENROUTER_MODEL_NAME,
   _lookupThumbnails?: ThumbnailLookupFn,
   checkpointer?: BaseCheckpointSaver,
+  routePlannerService?: RoutePlannerService,
 ) {
   void _lookupThumbnails;
 
@@ -663,6 +794,21 @@ export function buildTravelAgentGraph(
     maxTokens: 8000,
     modelKwargs: {
       parallel_tool_calls: false,
+    },
+    configuration: {
+      baseURL:
+        process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    },
+    apiKey: process.env.OPENROUTER_API_KEY,
+  });
+
+  // Model variant that allows parallel tool calls (for trip_planner's concurrent searches)
+  const parallelModel = new ChatOpenAI({
+    modelName,
+    temperature: 0.3,
+    maxTokens: 8000,
+    modelKwargs: {
+      parallel_tool_calls: true,
     },
     configuration: {
       baseURL:
@@ -700,7 +846,7 @@ export function buildTravelAgentGraph(
   });
 
   const tripPlanner = createAgent({
-    model,
+    model: parallelModel,
     tools: pick(
       'searchPlacesSemantic',
       'searchPlacesByKeyword',
@@ -786,7 +932,7 @@ export function buildTravelAgentGraph(
         ],
       };
     })
-    .addNode('tripPipeline', async (state) => {
+    .addNode('tripPipeline', async (state, config) => {
       const messages = state.messages.filter(
         (m) =>
           !(
@@ -794,69 +940,197 @@ export function buildTravelAgentGraph(
           ),
       );
 
-      // Run trip_planner → hotel_agent → route_agent → budget_agent sequentially
-      const tripResult = await compiledTripPlanner.invoke({ messages });
-      const hotelResult = await compiledHotelAgent.invoke({
-        messages: tripResult.messages,
-      });
-      // Route agent generates GeoJSON and calculates driving distances
-      const routeResult = await compiledRouteAgent.invoke({
-        messages: hotelResult.messages,
-      });
-      const budgetResult = await compiledBudgetAgent.invoke({
-        messages: routeResult.messages,
-      });
+      // Step 1: Run trip_planner + hotel_agent IN PARALLEL
+      // Note: do NOT pass config here — it causes both agents' streaming tokens
+      // to propagate simultaneously, producing garbled interleaved text in chat
+      const [tripResult, hotelResult] = await Promise.all([
+        compiledTripPlanner.invoke({ messages }),
+        compiledHotelAgent.invoke({ messages }),
+      ]);
 
-      return { messages: budgetResult.messages };
+      // Merge messages from both agents
+      const mergedMessages = [...tripResult.messages, ...hotelResult.messages];
+
+      // Step 2: Deterministic route extraction (replaces route_agent LLM)
+      let routeMessages = mergedMessages;
+      if (routePlannerService) {
+        const routeInput = extractRouteInput(mergedMessages);
+        if (routeInput) {
+          try {
+            const routeResult = await routePlannerService.planRoute(routeInput);
+
+            // Strip geometry for token efficiency (frontend gets it via REST)
+            const lightweight = {
+              itinerary: routeResult.itinerary.map((day) => ({
+                day: day.day,
+                transit_advice: day.transit_advice,
+                route: day.route,
+                daily_distance_km: day.daily_distance_km,
+                daily_duration_mins: day.daily_duration_mins,
+              })),
+              summary: routeResult.summary,
+            };
+
+            // Step 3: Deterministic budget computation (replaces budget_agent LLM)
+            // Find trip JSON for province and days
+            let tripJson: Record<string, unknown> | null = null;
+            for (let i = mergedMessages.length - 1; i >= 0; i--) {
+              const content = extractMessageContent(mergedMessages[i]);
+              for (const block of parseJsonCodeBlocks(content)) {
+                if (Array.isArray(block.parsed.days)) {
+                  tripJson = block.parsed;
+                  break;
+                }
+              }
+              if (tripJson) break;
+            }
+
+            // Extract hotel price from hotel results
+            let hotelPrice: number | null = null;
+            for (let i = mergedMessages.length - 1; i >= 0; i--) {
+              const content = extractMessageContent(mergedMessages[i]);
+              for (const block of parseJsonCodeBlocks(content)) {
+                if (Array.isArray(block.parsed.hotels)) {
+                  const hotels = block.parsed.hotels as Array<
+                    Record<string, unknown>
+                  >;
+                  if (hotels.length > 0) {
+                    hotelPrice = parseHotelPrice(
+                      hotels[0].priceRange as string | undefined,
+                    );
+                  }
+                  break;
+                }
+              }
+              if (hotelPrice !== null) break;
+            }
+
+            const budgetData = computeBudget(
+              {
+                province:
+                  (tripJson?.province as string) ||
+                  routeInput.destination_province,
+                days:
+                  (tripJson?.days as Array<{
+                    day: number;
+                    items: unknown[];
+                  }>) || [],
+              },
+              hotelPrice,
+              routeResult.summary,
+              null,
+            );
+
+            routeMessages = [
+              ...mergedMessages,
+              new AIMessage({
+                content: `\`\`\`json\n${JSON.stringify(lightweight, null, 2)}\n\`\`\``,
+                name: 'route_agent',
+              }),
+              new AIMessage({
+                content: `\`\`\`json\n${JSON.stringify(budgetData, null, 2)}\n\`\`\``,
+                name: 'budget_agent',
+              }),
+            ];
+          } catch {
+            // Fallback: run route_agent and budget_agent with LLMs
+            const routeResult = await compiledRouteAgent.invoke(
+              {
+                messages: mergedMessages,
+              },
+              config,
+            );
+            const budgetResult = await compiledBudgetAgent.invoke(
+              {
+                messages: routeResult.messages,
+              },
+              config,
+            );
+            routeMessages = budgetResult.messages;
+          }
+        } else {
+          // Could not extract — fallback to LLM agents
+          const routeResult = await compiledRouteAgent.invoke(
+            {
+              messages: mergedMessages,
+            },
+            config,
+          );
+          const budgetResult = await compiledBudgetAgent.invoke(
+            {
+              messages: routeResult.messages,
+            },
+            config,
+          );
+          routeMessages = budgetResult.messages;
+        }
+      } else {
+        // No routePlannerService — fallback to LLM agents
+        const routeResult = await compiledRouteAgent.invoke(
+          {
+            messages: mergedMessages,
+          },
+          config,
+        );
+        const budgetResult = await compiledBudgetAgent.invoke(
+          {
+            messages: routeResult.messages,
+          },
+          config,
+        );
+        routeMessages = budgetResult.messages;
+      }
+
+      return { messages: routeMessages };
     })
-    .addNode('hotelPipeline', async (state) => {
+    .addNode('hotelPipeline', async (state, config) => {
       const messages = state.messages.filter(
         (m) =>
           !(
             typeof m.content === 'string' && m.content.startsWith('__intent__:')
           ),
       );
-      const result = await compiledHotelAgent.invoke({ messages });
+      const result = await compiledHotelAgent.invoke({ messages }, config);
       return { messages: result.messages };
     })
-    .addNode('recommendPipeline', async (state) => {
+    .addNode('recommendPipeline', async (state, config) => {
       const messages = state.messages.filter(
         (m) =>
           !(
             typeof m.content === 'string' && m.content.startsWith('__intent__:')
           ),
       );
-      const result = await compiledRecommendAgent.invoke({ messages });
+      const result = await compiledRecommendAgent.invoke({ messages }, config);
       return { messages: result.messages };
     })
-    .addNode('routePipeline', async (state) => {
+    .addNode('routePipeline', async (state, config) => {
       const messages = state.messages.filter(
         (m) =>
           !(
             typeof m.content === 'string' && m.content.startsWith('__intent__:')
           ),
       );
-      const result = await compiledRouteAgent.invoke({ messages });
+      const result = await compiledRouteAgent.invoke({ messages }, config);
       return { messages: result.messages };
     })
-    .addNode('eventPipeline', async (state) => {
+    .addNode('eventPipeline', async (state, config) => {
       const messages = state.messages.filter(
         (m) =>
           !(
             typeof m.content === 'string' && m.content.startsWith('__intent__:')
           ),
       );
-      const result = await compiledEventAgent.invoke({ messages });
+      const result = await compiledEventAgent.invoke({ messages }, config);
       return { messages: result.messages };
     })
-    .addNode('supervisorFallback', async (state) => {
+    .addNode('supervisorFallback', async (state, config) => {
       const messages = state.messages.filter(
         (m) =>
           !(
             typeof m.content === 'string' && m.content.startsWith('__intent__:')
           ),
       );
-      const result = await compiledSupervisor.invoke({ messages });
+      const result = await compiledSupervisor.invoke({ messages }, config);
       return { messages: result.messages };
     })
     .addEdge('__start__', 'intentRouter')

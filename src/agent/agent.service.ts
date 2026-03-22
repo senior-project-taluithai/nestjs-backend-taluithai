@@ -90,6 +90,7 @@ export class AgentService implements OnModuleInit {
       undefined,
       undefined,
       this.checkpointer,
+      this.routePlannerService,
     );
     this.logger.log(
       `Travel agent graph compiled successfully (LangSmith tracing: ${process.env.LANGCHAIN_TRACING_V2 === 'true' && !!process.env.LANGSMITH_API_KEY ? 'ON' : 'OFF'})`,
@@ -274,6 +275,34 @@ export class AgentService implements OnModuleInit {
           if (output && Array.isArray(output.messages)) {
             lastState = output;
           }
+        }
+      }
+
+      // Fallback: if on_chain_end didn't capture state, retrieve from checkpointer
+      if (
+        !lastState.messages ||
+        !Array.isArray(lastState.messages) ||
+        lastState.messages.length === 0
+      ) {
+        try {
+          const finalSnapshot = await this.graph.getState({
+            configurable: { thread_id: threadId },
+          });
+          if (
+            finalSnapshot?.values &&
+            Array.isArray(
+              (finalSnapshot.values as Record<string, unknown>).messages,
+            )
+          ) {
+            lastState = finalSnapshot.values as Record<string, unknown>;
+            this.logger.log(
+              '[streamRun] Used checkpointer fallback for state capture',
+            );
+          }
+        } catch (e) {
+          this.logger.warn(
+            `[streamRun] Fallback state capture failed: ${(e as Error).message}`,
+          );
         }
       }
 

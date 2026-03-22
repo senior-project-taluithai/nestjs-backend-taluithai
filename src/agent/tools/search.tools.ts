@@ -98,17 +98,28 @@ export function createSearchTools(toolsService: ToolsService) {
     name: 'searchEvents',
     description:
       'Search for festivals, events, and cultural activities in Thailand. ' +
-      'Can filter by province name. Returns event name, dates, province, and description.',
+      'Can filter by province name and date range. Returns event name, dates, location, coordinates, and description.',
     schema: z.object({
       query: z.string().optional().describe('Event search query'),
       province: z.string().optional().describe('Province name to filter'),
-      limit: z.number().optional().default(10).describe('Max results'),
+      startDate: z
+        .string()
+        .optional()
+        .describe('Start date (YYYY-MM-DD) to filter events within a date range'),
+      endDate: z
+        .string()
+        .optional()
+        .describe('End date (YYYY-MM-DD) to filter events within a date range'),
+      limit: z.number().optional().default(5).describe('Max results'),
     }),
     func: async (input: any) => {
-      const { query, limit } = input;
+      const { query, province, startDate, endDate, limit } = input;
+      const searchTerm = [query, province].filter(Boolean).join(' ');
       const results = await toolsService.searchEvents({
-        query,
-        limit: limit ?? 10,
+        query: searchTerm || undefined,
+        startDate,
+        endDate,
+        limit: limit ?? 5,
       });
       return JSON.stringify(results);
     },

@@ -206,39 +206,42 @@ export class RoutePlannerService {
     transitAdvice: string | null,
     hotels: RoutePlannerHotelDto[],
   ): Promise<ItineraryDay[]> {
-    const days: ItineraryDay[] = [];
+    // Phase A (sequential): optimize visit order + hotel matching per day
+    // (each day's start depends on previous day's hotel)
+    const dayPlans: Array<{
+      dayIdx: number;
+      optimizedPlaces: RoutePlannerPlaceDto[];
+      selectedHotel: RoutePlannerHotelDto | null;
+      currentStart: { name: string; latitude: number; longitude: number };
+      waypoints: { latitude: number; longitude: number }[];
+      route: RouteStop[];
+    }> = [];
+
     let currentStart = startPoint;
 
     for (let dayIdx = 0; dayIdx < orderedClusters.length; dayIdx++) {
       const cluster = orderedClusters[dayIdx];
       const isLastDay = dayIdx === orderedClusters.length - 1;
 
-      // Step 2.3: Optimize visit order via OSRM Trip API
       const optimizedPlaces = await this.optimizeVisitOrder(
         currentStart,
         cluster.members,
       );
 
-      // Step 2.4: Smart Hotel Matching (not on last day)
       const lastPlace =
         optimizedPlaces[optimizedPlaces.length - 1] ?? currentStart;
-      const prevHotel = dayIdx > 0 ? this.extractHotel(days[dayIdx - 1]) : null;
+      const prevHotel = dayIdx > 0 ? dayPlans[dayIdx - 1].selectedHotel : null;
 
       const selectedHotel = isLastDay
         ? null
         : this.matchHotel(lastPlace, hotels, prevHotel);
 
-      // Build full waypoint list for this day's route: start → places → hotel
-      const dayWaypoints = this.buildDayWaypoints(
+      const waypoints = this.buildDayWaypoints(
         currentStart,
         optimizedPlaces,
         selectedHotel,
       );
 
-      // Get final route geometry from OSRM Route API
-      const routeResult = await this.getDayRoute(dayWaypoints);
-
-      // Build route stops array
       const route: RouteStop[] = [
         {
           type: 'start',
@@ -268,13 +271,13 @@ export class RoutePlannerService {
         });
       }
 
-      days.push({
-        day: dayIdx + 1,
-        transit_advice: dayIdx === 0 ? transitAdvice : null,
+      dayPlans.push({
+        dayIdx,
+        optimizedPlaces,
+        selectedHotel,
+        currentStart,
+        waypoints,
         route,
-        daily_distance_km: routeResult?.distance_km ?? 0,
-        daily_duration_mins: routeResult?.duration_minutes ?? 0,
-        geometry: routeResult?.geometry ?? null,
       });
 
       // Next day starts from hotel (or last place if last day)
@@ -291,7 +294,20 @@ export class RoutePlannerService {
           };
     }
 
-    return days;
+    // Phase B (parallel): fetch all day route geometries concurrently
+    const routeResults = await Promise.all(
+      dayPlans.map((plan) => this.getDayRoute(plan.waypoints)),
+    );
+
+    // Assemble final itinerary
+    return dayPlans.map((plan, i) => ({
+      day: plan.dayIdx + 1,
+      transit_advice: plan.dayIdx === 0 ? transitAdvice : null,
+      route: plan.route,
+      daily_distance_km: routeResults[i]?.distance_km ?? 0,
+      daily_duration_mins: routeResults[i]?.duration_minutes ?? 0,
+      geometry: routeResults[i]?.geometry ?? null,
+    }));
   }
 
   private async optimizeVisitOrder(

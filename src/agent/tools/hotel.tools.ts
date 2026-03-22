@@ -4,6 +4,7 @@ import {
   HotelsScraperService,
   ScrapedHotel,
 } from '../../hotels/hotels-scraper.service';
+import { cachedSearch, hashString } from '../utils/redis-cache';
 
 interface SearchHotelsInput {
   location: string;
@@ -80,42 +81,47 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
         .describe('Maximum number of hotels to return (default 10)'),
     }),
     func: async (input: SearchHotelsInput) => {
+      const cacheKey = `hotels:${hashString(`${input.location}:${input.checkInDate ?? ''}:${input.checkOutDate ?? ''}`)}`;
+      const TTL_HOTEL = 6 * 60 * 60; // 6 hours
+
       try {
-        const hotels = await hotelsScraperService.searchHotels({
-          location: input.location,
-          checkInDate: input.checkInDate,
-          checkOutDate: input.checkOutDate,
-          adults: input.adults ?? 2,
-          currency: input.currency ?? 'THB',
-          maxResults: input.maxResults ?? 10,
-        });
+        return await cachedSearch(cacheKey, TTL_HOTEL, async () => {
+          const hotels = await hotelsScraperService.searchHotels({
+            location: input.location,
+            checkInDate: input.checkInDate,
+            checkOutDate: input.checkOutDate,
+            adults: input.adults ?? 2,
+            currency: input.currency ?? 'THB',
+            maxResults: input.maxResults ?? 10,
+          });
 
-        const mapped: MappedHotel[] = hotels.map(
-          (hotel: ScrapedHotel, index: number) => ({
-            id: index,
-            name: hotel.name,
-            address: hotel.address || '',
-            latitude: hotel.latitude,
-            longitude: hotel.longitude,
-            rating: hotel.rating,
-            reviewCount: hotel.reviewCount,
-            priceRange: hotel.priceRange || '',
-            thumbnail: hotel.thumbnail || '',
-            website: stripQueryParams(hotel.website || ''),
-            bookingUrl: stripQueryParams(hotel.bookingUrl || ''),
-            prices: (hotel.prices || []).slice(0, 3).map((p) => ({
-              provider: p.provider,
-              price: p.price,
-              link: stripQueryParams(p.link || hotel.bookingUrl || ''),
-            })),
-            imageUrls: (hotel.imageUrls || []).slice(0, 3),
-            amenities: (hotel.amenities || []).slice(0, 10),
-          }),
-        );
+          const mapped: MappedHotel[] = hotels.map(
+            (hotel: ScrapedHotel, index: number) => ({
+              id: index,
+              name: hotel.name,
+              address: hotel.address || '',
+              latitude: hotel.latitude,
+              longitude: hotel.longitude,
+              rating: hotel.rating,
+              reviewCount: hotel.reviewCount,
+              priceRange: hotel.priceRange || '',
+              thumbnail: hotel.thumbnail || '',
+              website: stripQueryParams(hotel.website || ''),
+              bookingUrl: stripQueryParams(hotel.bookingUrl || ''),
+              prices: (hotel.prices || []).slice(0, 3).map((p) => ({
+                provider: p.provider,
+                price: p.price,
+                link: stripQueryParams(p.link || hotel.bookingUrl || ''),
+              })),
+              imageUrls: (hotel.imageUrls || []).slice(0, 3),
+              amenities: (hotel.amenities || []).slice(0, 10),
+            }),
+          );
 
-        return JSON.stringify({
-          hotels: mapped,
-          count: mapped.length,
+          return JSON.stringify({
+            hotels: mapped,
+            count: mapped.length,
+          });
         });
       } catch (err) {
         return JSON.stringify({
