@@ -13,6 +13,7 @@ interface SearchHotelsInput {
   adults?: number;
   currency?: string;
   maxResults?: number;
+  amenities?: string[];
 }
 
 interface MappedHotel {
@@ -79,6 +80,12 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
         .optional()
         .default(10)
         .describe('Maximum number of hotels to return (default 10)'),
+      amenities: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Filter by amenities. Supported values: "Free Wi-Fi", "Free breakfast", "Pool", "Free parking", "Air conditioning", "Fitness center", "Hot tub"',
+        ),
     }),
     func: async (input: SearchHotelsInput) => {
       const cacheKey = `hotels:${hashString(`${input.location}:${input.checkInDate ?? ''}:${input.checkOutDate ?? ''}`)}`;
@@ -93,6 +100,7 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
             adults: input.adults ?? 2,
             currency: input.currency ?? 'THB',
             maxResults: input.maxResults ?? 10,
+            amenities: input.amenities,
           });
 
           const mapped: MappedHotel[] = hotels.map(

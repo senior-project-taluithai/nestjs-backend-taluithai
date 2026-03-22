@@ -23,7 +23,12 @@ import {
   stripDistantItems,
   fixThumbnailsInResponse,
 } from './graph';
-import { HumanMessage, BaseMessage } from '@langchain/core/messages';
+import {
+  HumanMessage,
+  AIMessage,
+  SystemMessage,
+  BaseMessage,
+} from '@langchain/core/messages';
 import { randomUUID } from 'crypto';
 import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { truncateMessagesIfNeeded } from './utils/context-manager';
@@ -228,17 +233,54 @@ export class AgentService implements OnModuleInit {
     const lastMsg = rawMessages[rawMessages.length - 1];
     const lastContent =
       typeof lastMsg === 'string' ? lastMsg : lastMsg?.content || '';
-    const messages = lastContent ? [new HumanMessage(lastContent)] : [];
+    let messages: BaseMessage[] = lastContent
+      ? [new HumanMessage(lastContent)]
+      : [];
 
     const runId = randomUUID();
 
     // Emit metadata event
     yield this.formatSSE('metadata', { run_id: runId });
 
+    // Fallback: if Redis checkpoint expired, reload history from PostgreSQL
+    // so the agent remembers past conversations.
+    if (this.checkpointer && conversationId && userId) {
+      try {
+        const existing = await this.checkpointer.getTuple({
+          configurable: { thread_id: threadId },
+        });
+        if (!existing) {
+          this.logger.log(
+            `[streamRun] No Redis checkpoint for thread ${threadId}, loading history from PostgreSQL`,
+          );
+          const { data: dbMessages } = await this.chatService.getMessages(
+            conversationId,
+            userId,
+            { limit: 30 },
+          );
+          if (dbMessages.length > 0) {
+            const historyMessages: BaseMessage[] = dbMessages.map((m) => {
+              if (m.role === 'assistant') return new AIMessage(m.content || '');
+              if (m.role === 'system')
+                return new SystemMessage(m.content || '');
+              return new HumanMessage(m.content || '');
+            });
+            // Append the new user message after history
+            messages = [...historyMessages, ...messages];
+            this.logger.log(
+              `[streamRun] Loaded ${dbMessages.length} messages from PostgreSQL as history`,
+            );
+          }
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[streamRun] PostgreSQL history fallback failed: ${(e as Error).message}`,
+        );
+      }
+    }
+
     // Phase 5.2: Truncate messages if conversation is long
-    const truncationResult = truncateMessagesIfNeeded(
-      messages as BaseMessage[],
-    );
+    const truncationResult = truncateMessagesIfNeeded(messages);
     if (truncationResult.wasTruncated) {
       this.logger.log(
         `[streamRun] Truncated ${truncationResult.removedCount} messages (est. ${truncationResult.estimatedTokens} tokens)`,
@@ -405,11 +447,48 @@ export class AgentService implements OnModuleInit {
         const convertedMessages = messages.map((msg) =>
           this.convertMessage(msg),
         );
-        await this.chatService.saveAIResponseFromThread(
-          conversationId,
-          userId,
-          convertedMessages,
+
+        // Consolidate all AI messages from this run into a single message
+        // to prevent multiple bubbles when the conversation is reloaded.
+        const aiMessages = convertedMessages.filter(
+          (m) => m.type === 'ai' || m.type === 'assistant',
         );
+        const nonAiMessages = convertedMessages.filter(
+          (m) => m.type !== 'ai' && m.type !== 'assistant',
+        );
+
+        if (aiMessages.length > 1) {
+          const combinedContent = aiMessages
+            .map((m) =>
+              typeof m.content === 'string'
+                ? m.content
+                : JSON.stringify(m.content),
+            )
+            .filter((c) => c && c.trim())
+            .join('\n\n');
+
+          const consolidatedAi = {
+            ...aiMessages[aiMessages.length - 1],
+            content: combinedContent,
+          };
+
+          const consolidatedMessages = [...nonAiMessages, consolidatedAi];
+          this.logger.debug(
+            `Consolidated ${aiMessages.length} AI messages into 1`,
+          );
+          await this.chatService.saveAIResponseFromThread(
+            conversationId,
+            userId,
+            consolidatedMessages,
+          );
+        } else {
+          await this.chatService.saveAIResponseFromThread(
+            conversationId,
+            userId,
+            convertedMessages,
+          );
+        }
+
         this.logger.log(`Saved AI messages to conversation ${conversationId}`);
       } catch (error) {
         this.logger.error(

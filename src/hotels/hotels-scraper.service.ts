@@ -29,6 +29,7 @@ export interface SearchHotelsOptions {
   adults?: number;
   currency?: string;
   maxResults?: number;
+  amenities?: string[];
 }
 
 const DEFAULT_NUM_OF_ADULTS = 2;

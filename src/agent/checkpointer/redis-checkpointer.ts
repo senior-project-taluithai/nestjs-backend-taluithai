@@ -8,7 +8,7 @@ import {
 } from '@langchain/langgraph-checkpoint';
 import { RunnableConfig } from '@langchain/core/runnables';
 
-const DEFAULT_TTL_SECONDS = 6 * 60 * 60;
+const DEFAULT_TTL_SECONDS = 24 * 60 * 60;
 
 export interface RedisCheckpointerConfig {
   ttlSeconds?: number;

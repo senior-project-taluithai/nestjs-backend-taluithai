@@ -64,6 +64,8 @@ Return a JSON code block with exactly this shape. For places use "type": "place"
         "type": "event",
         "event_id": 456,
         "name": "Event Name",
+        "latitude": 13.0,
+        "longitude": 100.0,
         "thumbnail_url": "<url from tool>",
         "startTime": "14:00",
         "endTime": "16:00"
@@ -73,7 +75,19 @@ Return a JSON code block with exactly this shape. For places use "type": "place"
 }
 \`\`\`
 
-Do not invent places, IDs, coordinates, or thumbnails. Populate 'thumbnail_url' from the 'thumbnail' returned by the tools. If a tool doesn't provide a thumbnail, use an empty string "". DO NOT retry searching just to find a thumbnail!`;
+Do not invent places, IDs, coordinates, or thumbnails. Populate 'thumbnail_url' from the 'thumbnail' returned by the tools. If a tool doesn't provide a thumbnail, use an empty string "". DO NOT retry searching just to find a thumbnail!
+
+## Modification Mode
+If you receive a [CURRENT_TRIP] context block in the user message:
+- This is a MODIFICATION request, not a new trip creation.
+- Parse the existing trip JSON and apply ONLY the requested changes.
+- Keep all unchanged places/days intact — do NOT regenerate the entire trip from scratch.
+- For "add a day": append a new day, search for new places only for that day. Keep existing days as-is.
+- For "change destination": rebuild with new location but keep the same number of days.
+- For "swap/replace a place": search for a replacement and swap it into the same time slot. Keep all other places unchanged.
+- For "change times": adjust startTime/endTime without re-searching places.
+- For "remove a place/day": remove only the specified item. Re-number days if needed.
+- Output the FULL updated trip JSON (all days, not just the changed parts).`;
 
 const BUDGET_PROMPT = `You are the Budget Agent of TaluiThai AI.
 Your job is to estimate trip costs based on REAL PRICES from web search.
@@ -177,7 +191,16 @@ Return ONLY a JSON code block with this exact structure:
 2. **Output ONLY the JSON code block** - no text before or after
 3. **suggested_spent = 70% of total** (e.g., 10000 budget → suggest spending 7000)
 4. **Break down all expenses by day** - especially food by Breakfast/Lunch/Dinner
-5. **End your turn after outputting the JSON** - do not add more text`;
+5. **End your turn after outputting the JSON** - do not add more text
+
+## Modification Mode
+If you receive a [CURRENT_BUDGET] context block in the user message:
+- The user wants to MODIFY their existing budget, not create one from scratch.
+- Parse the existing budget JSON from the context.
+- Apply ONLY the requested changes (e.g. increase total, reallocate categories, add/remove expenses).
+- Keep unchanged categories and expenses intact.
+- Recalculate totals and daily allocations after changes.
+- Output the FULL updated budget JSON (all categories, dailyBudgets, and expenses).`;
 
 const ROUTE_PROMPT = `You are the Route Agent of TaluiThai AI.
 Your job is to generate driving routes for multi-day trip itineraries.
@@ -263,14 +286,22 @@ Your job is to find hotels and accommodations in Thailand.
 
 ## Instructions
 1. Extract the destination province/area from the user's message (e.g. "plan 3 day trip to Krabi" → "Krabi").
-2. Call searchHotels EXACTLY ONCE with the English province name and maxResults: 5.
-3. Output ONLY the JSON code block — no summary, no recap, no additional text.
+2. Call searchHotels EXACTLY ONCE with the English province name and maxResults: 10.
+3. If the user requests specific amenities (pool, WiFi, breakfast, parking, fitness, hot tub, air conditioning), pass them in the "amenities" parameter.
+4. Output ONLY the JSON code block — no summary, no recap, no additional text.
 
 ## CRITICAL RULES
 - Call searchHotels EXACTLY ONCE. Do NOT search again in Thai or with different keywords.
 - Do NOT call searchHotels more than once under any circumstance.
 - Output ONLY the JSON block below — nothing else before or after.
 - End your turn immediately after outputting the JSON block.
+
+## Modification Mode
+If you receive a [CURRENT_HOTELS] context block in the user message:
+- The user wants to CHANGE their hotel selection, not start from scratch.
+- If they ask for specific amenities (pool, WiFi, breakfast, parking, etc.), pass them in the amenities parameter of searchHotels.
+- If they ask for "cheaper": search the same location and present lower-priced options.
+- If they ask for "better": search the same location and present higher-rated options.
 
 ## Output Format
 \`\`\`json
@@ -560,6 +591,27 @@ export async function fixThumbnailsInResponse(
   return result;
 }
 
+function extractBudgetFromMessages(messages: unknown[]): number | null {
+  for (const msg of messages) {
+    const m = msg as Record<string, unknown>;
+    const msgType = typeof m._getType === 'function' ? m._getType() : m.type;
+    if (msgType !== 'human') continue;
+
+    const content = extractMessageContent(msg);
+    if (!content) continue;
+
+    const thMatch = content.match(/งบ[^\d]*([\d,]+)/);
+    if (thMatch) return parseInt(thMatch[1].replace(/,/g, ''), 10);
+
+    const enMatch = content.match(/budget[^\d]*([\d,]+)/i);
+    if (enMatch) return parseInt(enMatch[1].replace(/,/g, ''), 10);
+
+    const curMatch = content.match(/[฿£$€]\s*([\d,]+)/);
+    if (curMatch) return parseInt(curMatch[1].replace(/,/g, ''), 10);
+  }
+  return null;
+}
+
 // --- Intent Short-Circuit ---
 
 const TRIP_KEYWORDS = [
@@ -575,6 +627,23 @@ const TRIP_KEYWORDS = [
   'จัดทริป',
   'เที่ยว.*วัน',
   'วัน.*เที่ยว',
+  // Modification keywords
+  'change.*trip',
+  'modify.*trip',
+  'update.*trip',
+  'add.*day',
+  'remove.*day',
+  'swap',
+  'replace',
+  'เปลี่ยน.*ทริป',
+  'เพิ่ม.*วัน',
+  'ลบ.*วัน',
+  'แก้ไข',
+  'อัพเดท',
+  'เพิ่มงบ',
+  'increase.*budget',
+  'ลดงบ',
+  'งบประมาณ',
 ];
 const RECOMMEND_KEYWORDS = [
   'แนะนำ',
@@ -616,6 +685,28 @@ const HOTEL_KEYWORDS = [
   'ห้องพัก',
   'ย่าน',
   'เซอร์วิสอพาร์ทเมนท์',
+  // Modification & amenity keywords
+  'change.*hotel',
+  'cheaper',
+  'better.*hotel',
+  'amenit',
+  'breakfast',
+  'wifi',
+  'wi-fi',
+  'parking',
+  'pool',
+  'hot tub',
+  'fitness',
+  'gym',
+  'อาหารเช้า',
+  'สระว่ายน้ำ',
+  'ถูกกว่า',
+  'ดีกว่า',
+  'เปลี่ยน.*โรงแรม',
+  'เปลี่ยน.*ที่พัก',
+  'ฟิตเนส',
+  'จากุซซี่',
+  'ที่จอดรถ',
 ];
 
 function detectIntent(
@@ -1005,6 +1096,8 @@ export function buildTravelAgentGraph(
               if (hotelPrice !== null) break;
             }
 
+            const userBudget = extractBudgetFromMessages(messages);
+
             const budgetData = computeBudget(
               {
                 province:
@@ -1018,7 +1111,7 @@ export function buildTravelAgentGraph(
               },
               hotelPrice,
               routeResult.summary,
-              null,
+              userBudget,
             );
 
             routeMessages = [

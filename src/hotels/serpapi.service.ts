@@ -46,6 +46,35 @@ export class SerpApiService {
     return key;
   }
 
+  // SerpAPI Google Hotels amenity name → numeric code mapping
+  private static readonly AMENITY_CODES: Record<string, number> = {
+    'free wi-fi': 1,
+    wifi: 1,
+    'wi-fi': 1,
+    pool: 2,
+    'swimming pool': 2,
+    'fitness center': 4,
+    fitness: 4,
+    gym: 4,
+    'air conditioning': 6,
+    ac: 6,
+    'hot tub': 8,
+    jacuzzi: 8,
+    'free parking': 9,
+    parking: 9,
+    'free breakfast': 16,
+    breakfast: 16,
+  };
+
+  private mapAmenitiesToCodes(amenities: string[]): string {
+    const codes = new Set<number>();
+    for (const amenity of amenities) {
+      const code = SerpApiService.AMENITY_CODES[amenity.toLowerCase().trim()];
+      if (code) codes.add(code);
+    }
+    return Array.from(codes).join(',');
+  }
+
   async searchHotels(options: {
     location: string;
     checkInDate?: string;
@@ -53,6 +82,7 @@ export class SerpApiService {
     adults?: number;
     currency?: string;
     maxResults?: number;
+    amenities?: string[];
   }): Promise<ScrapedHotel[]> {
     if (this.apiKeys.length === 0) {
       this.logger.warn('SerpAPI keys not configured');
@@ -68,6 +98,7 @@ export class SerpApiService {
       adults = 2,
       currency = 'THB',
       maxResults = 10,
+      amenities,
     } = options;
 
     const today = new Date();
@@ -87,6 +118,17 @@ export class SerpApiService {
       hl: 'en',
       api_key: apiKey,
     });
+
+    // Add amenity filter codes if requested
+    if (amenities && amenities.length > 0) {
+      const amenityCodes = this.mapAmenitiesToCodes(amenities);
+      if (amenityCodes) {
+        params.set('amenities', amenityCodes);
+        this.logger.log(
+          `Filtering by amenities: ${amenities.join(', ')} → codes: ${amenityCodes}`,
+        );
+      }
+    }
 
     const url = `${this.baseUrl}?${params.toString()}`;
     const keyPrefix = apiKey.substring(0, 8);

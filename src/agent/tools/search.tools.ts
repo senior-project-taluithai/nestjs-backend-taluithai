@@ -105,7 +105,9 @@ export function createSearchTools(toolsService: ToolsService) {
       startDate: z
         .string()
         .optional()
-        .describe('Start date (YYYY-MM-DD) to filter events within a date range'),
+        .describe(
+          'Start date (YYYY-MM-DD) to filter events within a date range',
+        ),
       endDate: z
         .string()
         .optional()
