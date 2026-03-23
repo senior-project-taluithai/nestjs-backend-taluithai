@@ -14,6 +14,7 @@ interface SearchHotelsInput {
   currency?: string;
   maxResults?: number;
   amenities?: string[];
+  maxPrice?: number;
 }
 
 interface MappedHotel {
@@ -86,9 +87,15 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
         .describe(
           'Filter by amenities. Supported values: "Free Wi-Fi", "Free breakfast", "Pool", "Free parking", "Air conditioning", "Fitness center", "Hot tub"',
         ),
+      maxPrice: z
+        .number()
+        .optional()
+        .describe(
+          'Maximum price per night in THB. Use when user specifies a budget.',
+        ),
     }),
     func: async (input: SearchHotelsInput) => {
-      const cacheKey = `hotels:${hashString(`${input.location}:${input.checkInDate ?? ''}:${input.checkOutDate ?? ''}`)}`;
+      const cacheKey = `hotels:${hashString(`${input.location}:${input.checkInDate ?? ''}:${input.checkOutDate ?? ''}:${input.maxPrice ?? ''}`)}`;
       const TTL_HOTEL = 6 * 60 * 60; // 6 hours
 
       try {
@@ -101,9 +108,10 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
             currency: input.currency ?? 'THB',
             maxResults: input.maxResults ?? 10,
             amenities: input.amenities,
+            maxPrice: input.maxPrice,
           });
 
-          const mapped: MappedHotel[] = hotels.map(
+          let mapped: MappedHotel[] = hotels.map(
             (hotel: ScrapedHotel, index: number) => ({
               id: index,
               name: hotel.name,
@@ -125,6 +133,17 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
               amenities: (hotel.amenities || []).slice(0, 10),
             }),
           );
+
+          // Post-filter by maxPrice as a safety net
+          if (input.maxPrice) {
+            mapped = mapped.filter((hotel) => {
+              const priceMatch = hotel.priceRange
+                .replace(/,/g, '')
+                .match(/(\d+)/);
+              const lowestPrice = priceMatch ? parseInt(priceMatch[1], 10) : 0;
+              return lowestPrice === 0 || lowestPrice <= input.maxPrice!;
+            });
+          }
 
           return JSON.stringify({
             hotels: mapped,

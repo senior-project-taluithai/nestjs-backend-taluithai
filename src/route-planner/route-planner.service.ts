@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ToolsService } from '../tools/tools.service';
 import { ProvincesService } from '../provinces/provinces.service';
 import { RoutePlansService } from './route-plans.service';
+import { RouteSegmentsRepository } from './route-segments.repository';
 import { haversineKm } from './utils/haversine';
 import { kMeans, Cluster } from './utils/kmeans';
 import { getTransitHub } from './utils/thai-transit-hubs';
@@ -9,6 +10,7 @@ import {
   RoutePlannerRequestDto,
   RoutePlannerPlaceDto,
   RoutePlannerHotelDto,
+  HotelOverrideDto,
   RoutePlannerResponseDto,
   ItineraryDay,
   RouteStop,
@@ -17,6 +19,7 @@ import {
 
 const NEARBY_THRESHOLD_KM = 100;
 const SAME_HOTEL_THRESHOLD_KM = 15;
+const COORD_PRECISION = 3;
 
 @Injectable()
 export class RoutePlannerService {
@@ -26,6 +29,7 @@ export class RoutePlannerService {
     private readonly toolsService: ToolsService,
     private readonly provincesService: ProvincesService,
     private readonly routePlansService: RoutePlansService,
+    private readonly routeSegmentsRepository: RouteSegmentsRepository,
   ) {}
 
   async planRoute(
@@ -47,6 +51,7 @@ export class RoutePlannerService {
       startPoint,
       transitAdvice,
       request.shortlisted_hotels,
+      request.hotel_overrides,
     );
 
     // === Build Summary ===
@@ -76,7 +81,7 @@ export class RoutePlannerService {
     startPoint: { name: string; latitude: number; longitude: number };
     transitAdvice: string | null;
   }> {
-    const province = await this.provincesService.findByNameEn(
+    const province = await this.provincesService.findByName(
       request.destination_province,
     );
 
@@ -205,6 +210,7 @@ export class RoutePlannerService {
     startPoint: { name: string; latitude: number; longitude: number },
     transitAdvice: string | null,
     hotels: RoutePlannerHotelDto[],
+    hotelOverrides?: HotelOverrideDto[],
   ): Promise<ItineraryDay[]> {
     // Phase A (sequential): optimize visit order + hotel matching per day
     // (each day's start depends on previous day's hotel)
@@ -232,9 +238,16 @@ export class RoutePlannerService {
         optimizedPlaces[optimizedPlaces.length - 1] ?? currentStart;
       const prevHotel = dayIdx > 0 ? dayPlans[dayIdx - 1].selectedHotel : null;
 
+      const override = hotelOverrides?.find((o) => o.night === dayIdx + 1);
       const selectedHotel = isLastDay
         ? null
-        : this.matchHotel(lastPlace, hotels, prevHotel);
+        : override
+          ? {
+              name: override.hotel_name,
+              latitude: override.latitude,
+              longitude: override.longitude,
+            }
+          : this.matchHotel(lastPlace, hotels, prevHotel);
 
       const waypoints = this.buildDayWaypoints(
         currentStart,
@@ -452,6 +465,176 @@ export class RoutePlannerService {
     }
 
     return waypoints;
+  }
+
+  private roundCoord(n: number): number {
+    return (
+      Math.round(n * Math.pow(10, COORD_PRECISION)) /
+      Math.pow(10, COORD_PRECISION)
+    );
+  }
+
+  private getSegmentCacheKey(
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
+  ): string {
+    return `${this.roundCoord(from.latitude)},${this.roundCoord(from.longitude)}-${this.roundCoord(to.latitude)},${this.roundCoord(to.longitude)}`;
+  }
+
+  private async getCachedSegment(
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
+  ): Promise<{
+    geometry: GeoJSON.LineString;
+    distance_km: number;
+    duration_mins: number;
+  } | null> {
+    const fromLat = this.roundCoord(from.latitude);
+    const fromLng = this.roundCoord(from.longitude);
+    const toLat = this.roundCoord(to.latitude);
+    const toLng = this.roundCoord(to.longitude);
+
+    const redisKey = `route:segment:${fromLat},${fromLng}:${toLat},${toLng}`;
+
+    try {
+      const { cachedSearch } = await import('../agent/utils/redis-cache.js');
+      const cached = await cachedSearch(redisKey, 86400, async () => null);
+      if (cached) {
+        this.logger.debug(`Cache hit for segment ${redisKey}`);
+        return cached as {
+          geometry: GeoJSON.LineString;
+          distance_km: number;
+          duration_mins: number;
+        };
+      }
+    } catch {
+      // Redis not available, continue without cache
+    }
+    return null;
+  }
+
+  private async cacheSegment(
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
+    geometry: GeoJSON.LineString,
+    distance_km: number,
+    duration_mins: number,
+  ): Promise<void> {
+    const fromLat = this.roundCoord(from.latitude);
+    const fromLng = this.roundCoord(from.longitude);
+    const toLat = this.roundCoord(to.latitude);
+    const toLng = this.roundCoord(to.longitude);
+
+    const redisKey = `route:segment:${fromLat},${fromLng}:${toLat},${toLng}`;
+    const data = { geometry, distance_km, duration_mins };
+
+    try {
+      const { cachedSearch } = await import('../agent/utils/redis-cache.js');
+      await cachedSearch(redisKey, 86400, async () => data);
+      this.logger.debug(`Cached segment ${redisKey}`);
+    } catch {
+      // Redis not available, skip caching
+    }
+  }
+
+  private async buildSegmentsFromWaypoints(
+    waypoints: { latitude: number; longitude: number }[],
+    routeResult: {
+      geometry: GeoJSON.LineString;
+      distance_km: number;
+      duration_minutes: number;
+    },
+  ): Promise<void> {
+    if (waypoints.length < 2) return;
+
+    const coords = routeResult.geometry.coordinates as [number, number][];
+
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const from = waypoints[i];
+      const to = waypoints[i + 1];
+
+      const fromLat = this.roundCoord(from.latitude);
+      const fromLng = this.roundCoord(from.longitude);
+      const toLat = this.roundCoord(to.latitude);
+      const toLng = this.roundCoord(to.longitude);
+
+      const startCoord: [number, number] = [fromLng, fromLat];
+      const endCoord: [number, number] = [toLng, toLat];
+
+      const segmentCoords: [number, number][] = [];
+      let foundStart = false;
+
+      for (let j = 0; j < coords.length; j++) {
+        const coord = coords[j];
+
+        if (!foundStart) {
+          const dist = Math.sqrt(
+            Math.pow(coord[0] - startCoord[0], 2) +
+              Math.pow(coord[1] - startCoord[1], 2),
+          );
+          if (dist < 0.001) {
+            foundStart = true;
+            segmentCoords.push(coord);
+          }
+        } else {
+          segmentCoords.push(coord);
+          const distToEnd = Math.sqrt(
+            Math.pow(coord[0] - endCoord[0], 2) +
+              Math.pow(coord[1] - endCoord[1], 2),
+          );
+          if (distToEnd < 0.001) {
+            break;
+          }
+        }
+      }
+
+      if (segmentCoords.length >= 2) {
+        const segmentGeometry: GeoJSON.LineString = {
+          type: 'LineString',
+          coordinates: segmentCoords,
+        };
+
+        const segmentDistance = this.estimateSegmentDistance(
+          { lat: fromLat, lng: fromLng },
+          { lat: toLat, lng: toLng },
+        );
+
+        await this.cacheSegment(
+          from,
+          to,
+          segmentGeometry,
+          segmentDistance,
+          Math.round(segmentDistance / 50),
+        );
+      }
+    }
+  }
+
+  private estimateSegmentDistance(
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number },
+  ): number {
+    return haversineKm(from.lat, from.lng, to.lat, to.lng);
+  }
+
+  async getDayRouteWithCaching(
+    waypoints: { latitude: number; longitude: number }[],
+    planId?: number,
+    day?: number,
+  ) {
+    if (waypoints.length < 2) return null;
+
+    const routeResult = await this.toolsService.calculateRoute({ waypoints });
+
+    if (routeResult && routeResult.geometry) {
+      await this.buildSegmentsFromWaypoints(waypoints, {
+        geometry: routeResult.geometry as GeoJSON.LineString,
+        distance_km: routeResult.distance_km,
+        duration_minutes: routeResult.duration_minutes,
+      });
+    }
+
+    return routeResult;
   }
 
   private async getDayRoute(

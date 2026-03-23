@@ -1,9 +1,5 @@
 import { StructuredTool } from '@langchain/core/tools';
-import {
-  MemorySaver,
-  StateGraph,
-  MessagesAnnotation,
-} from '@langchain/langgraph';
+import { MemorySaver, StateGraph } from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import { createSupervisor } from '@langchain/langgraph-supervisor';
 import { ChatOpenAI } from '@langchain/openai';
@@ -12,24 +8,476 @@ import { ThumbnailLookupFn } from './types';
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { RoutePlannerService } from '../route-planner/route-planner.service';
 import { computeBudget } from './utils/thai-price-table';
+import {
+  TravelAgentAnnotation,
+  TripJson,
+  BudgetJson,
+  HotelJson,
+} from './state';
+
+// Region to province mapping for Thailand travel regions
+const REGION_PROVINCES: Record<
+  string,
+  { provinces: string[]; primary: string }
+> = {
+  // English names
+  'northern thailand': {
+    provinces: [
+      'Chiang Mai',
+      'Chiang Rai',
+      'Mae Hong Son',
+      'Lampang',
+      'Phrae',
+      'Nan',
+      'Pai',
+      'Mae Sai',
+      'Lamphun',
+      'Uttaradit',
+    ],
+    primary: 'Chiang Mai',
+  },
+  'north thailand': {
+    provinces: [
+      'Chiang Mai',
+      'Chiang Rai',
+      'Mae Hong Son',
+      'Lampang',
+      'Phrae',
+      'Nan',
+      'Pai',
+      'Mae Sai',
+      'Lamphun',
+      'Uttaradit',
+    ],
+    primary: 'Chiang Mai',
+  },
+  'the north': {
+    provinces: [
+      'Chiang Mai',
+      'Chiang Rai',
+      'Mae Hong Son',
+      'Lampang',
+      'Phrae',
+      'Nan',
+      'Pai',
+      'Mae Sai',
+      'Lamphun',
+      'Uttaradit',
+    ],
+    primary: 'Chiang Mai',
+  },
+  'southern thailand': {
+    provinces: [
+      'Phuket',
+      'Krabi',
+      'Surat Thani',
+      'Trang',
+      'Satun',
+      'Phang Nga',
+      'Nakhon Si Thammarat',
+      'Songkhla',
+      'Hat Yai',
+      'Koh Samui',
+      'Koh Phangan',
+    ],
+    primary: 'Phuket',
+  },
+  'south thailand': {
+    provinces: [
+      'Phuket',
+      'Krabi',
+      'Surat Thani',
+      'Trang',
+      'Satun',
+      'Phang Nga',
+      'Nakhon Si Thammarat',
+      'Songkhla',
+      'Hat Yai',
+      'Koh Samui',
+      'Koh Phangan',
+    ],
+    primary: 'Phuket',
+  },
+  'the south': {
+    provinces: [
+      'Phuket',
+      'Krabi',
+      'Surat Thani',
+      'Trang',
+      'Satun',
+      'Phang Nga',
+      'Nakhon Si Thammarat',
+      'Songkhla',
+      'Hat Yai',
+      'Koh Samui',
+      'Koh Phangan',
+    ],
+    primary: 'Phuket',
+  },
+  'northeastern thailand': {
+    provinces: [
+      'Nakhon Ratchasima',
+      'Khon Kaen',
+      'Udon Thani',
+      'Ubon Ratchathani',
+      'Nong Khai',
+      'Loei',
+      'Sakon Nakhon',
+      'Kalasin',
+      'Maha Sarakham',
+      'Roi Et',
+    ],
+    primary: 'Khon Kaen',
+  },
+  isan: {
+    provinces: [
+      'Nakhon Ratchasima',
+      'Khon Kaen',
+      'Udon Thani',
+      'Ubon Ratchathani',
+      'Nong Khai',
+      'Loei',
+      'Sakon Nakhon',
+      'Kalasin',
+      'Maha Sarakham',
+      'Roi Et',
+    ],
+    primary: 'Khon Kaen',
+  },
+  issaan: {
+    provinces: [
+      'Nakhon Ratchasima',
+      'Khon Kaen',
+      'Udon Thani',
+      'Ubon Ratchathani',
+      'Nong Khai',
+      'Loei',
+      'Sakon Nakhon',
+      'Kalasin',
+      'Maha Sarakham',
+      'Roi Et',
+    ],
+    primary: 'Khon Kaen',
+  },
+  'central thailand': {
+    provinces: [
+      'Bangkok',
+      'Ayutthaya',
+      'Kanchanaburi',
+      'Nakhon Pathom',
+      'Pathum Thani',
+      'Samut Prakan',
+      'Samut Songkhram',
+      'Suphan Buri',
+    ],
+    primary: 'Bangkok',
+  },
+  'central region': {
+    provinces: [
+      'Bangkok',
+      'Ayutthaya',
+      'Kanchanaburi',
+      'Nakhon Pathom',
+      'Pathum Thani',
+      'Samut Prakan',
+      'Samut Songkhram',
+      'Suphan Buri',
+    ],
+    primary: 'Bangkok',
+  },
+  'eastern thailand': {
+    provinces: [
+      'Pattaya',
+      'Chonburi',
+      'Rayong',
+      'Chanthaburi',
+      'Trat',
+      'Koh Chang',
+      'Bang Saen',
+    ],
+    primary: 'Pattaya',
+  },
+  'the east': {
+    provinces: [
+      'Pattaya',
+      'Chonburi',
+      'Rayong',
+      'Chanthaburi',
+      'Trat',
+      'Koh Chang',
+      'Bang Saen',
+    ],
+    primary: 'Rayong',
+  },
+  'western thailand': {
+    provinces: [
+      'Kanchanaburi',
+      'Ratchaburi',
+      'Phetchaburi',
+      'Prachuap Khiri Khan',
+      'Hua Hin',
+    ],
+    primary: 'Kanchanaburi',
+  },
+  'the west': {
+    provinces: [
+      'Kanchanaburi',
+      'Ratchaburi',
+      'Phetchaburi',
+      'Prachuap Khiri Khan',
+      'Hua Hin',
+    ],
+    primary: 'Kanchanaburi',
+  },
+  // Thai names
+  ภาคเหนือ: {
+    provinces: [
+      'Chiang Mai',
+      'Chiang Rai',
+      'Mae Hong Son',
+      'Lampang',
+      'Phrae',
+      'Nan',
+      'Pai',
+      'Mae Sai',
+      'Lamphun',
+      'Uttaradit',
+    ],
+    primary: 'Chiang Mai',
+  },
+  เหนือ: {
+    provinces: [
+      'Chiang Mai',
+      'Chiang Rai',
+      'Mae Hong Son',
+      'Lampang',
+      'Phrae',
+      'Nan',
+      'Pai',
+      'Mae Sai',
+      'Lamphun',
+      'Uttaradit',
+    ],
+    primary: 'Chiang Mai',
+  },
+  ภาคใต้: {
+    provinces: [
+      'Phuket',
+      'Krabi',
+      'Surat Thani',
+      'Trang',
+      'Satun',
+      'Phang Nga',
+      'Nakhon Si Thammarat',
+      'Songkhla',
+      'Hat Yai',
+      'Koh Samui',
+      'Koh Phangan',
+    ],
+    primary: 'Phuket',
+  },
+  ใต้: {
+    provinces: [
+      'Phuket',
+      'Krabi',
+      'Surat Thani',
+      'Trang',
+      'Satun',
+      'Phang Nga',
+      'Nakhon Si Thammarat',
+      'Songkhla',
+      'Hat Yai',
+      'Koh Samui',
+      'Koh Phangan',
+    ],
+    primary: 'Phuket',
+  },
+  ภาคอีสาน: {
+    provinces: [
+      'Nakhon Ratchasima',
+      'Khon Kaen',
+      'Udon Thani',
+      'Ubon Ratchathani',
+      'Nong Khai',
+      'Loei',
+      'Sakon Nakhon',
+      'Kalasin',
+      'Maha Sarakham',
+      'Roi Et',
+    ],
+    primary: 'Khon Kaen',
+  },
+  อีสาน: {
+    provinces: [
+      'Nakhon Rarchasima',
+      'Khon Kaen',
+      'Udon Thani',
+      'Ubon Ratchathani',
+      'Nong Khai',
+      'Loei',
+      'Sakon Nakhon',
+      'Kalasin',
+      'Maha Sarakham',
+      'Roi Et',
+    ],
+    primary: 'Khon Kaen',
+  },
+  ภาคกลาง: {
+    provinces: [
+      'Bangkok',
+      'Ayutthaya',
+      'Kanchanaburi',
+      'Nakhon Pathom',
+      'Pathum Thani',
+      'Samut Prakan',
+      'Samut Songkhram',
+      'Suphan Buri',
+    ],
+    primary: 'Bangkok',
+  },
+  ภาคตะวันออก: {
+    provinces: [
+      'Pattaya',
+      'Chonburi',
+      'Rayong',
+      'Chanthaburi',
+      'Trat',
+      'Koh Chang',
+      'Bang Saen',
+    ],
+    primary: 'Rayong',
+  },
+  ภาคตะวันตก: {
+    provinces: [
+      'Kanchanaburi',
+      'Ratchaburi',
+      'Phetchaburi',
+      'Prachuap Khiri Khan',
+      'Hua Hin',
+    ],
+    primary: 'Kanchanaburi',
+  },
+};
+
+// Extract destination province(s) from user message
+function extractDestinationProvinces(text: string): {
+  provinces: string[];
+  primary: string;
+  isRegion: boolean;
+} {
+  const lower = text.toLowerCase();
+
+  // Check for region keywords
+  const regionKeywords = Object.keys(REGION_PROVINCES);
+  for (const keyword of regionKeywords) {
+    if (lower.includes(keyword)) {
+      const region = REGION_PROVINCES[keyword];
+      return {
+        provinces: region.provinces,
+        primary: region.primary,
+        isRegion: true,
+      };
+    }
+  }
+
+  // Specific province mention - return single province
+  // Common province names (Thai and English)
+  const provincePatterns: Array<{ pattern: RegExp; province: string }> = [
+    // Major tourist provinces
+    { pattern: /\bchiang mai\b|\bเชียงใหม่\b/i, province: 'Chiang Mai' },
+    { pattern: /\bchiang rai\b|\bเชียงราย\b/i, province: 'Chiang Rai' },
+    { pattern: /\bphuket\b|\bภูเก็ต\b/i, province: 'Phuket' },
+    { pattern: /\bkrabi\b|\bกระบี่\b/i, province: 'Krabi' },
+    { pattern: /\bbangkok\b|\bกรุงเทพ\b|\bbang kok\b/i, province: 'Bangkok' },
+    { pattern: /\bpattaya\b|\bพัทยา\b/i, province: 'Pattaya' },
+    { pattern: /\bkoh samui\b|\bเกาะสมุย\b|\bsamui\b/i, province: 'Koh Samui' },
+    {
+      pattern: /\bkoh phangan\b|\bเกาะพะงัน\b|\bphangan\b/i,
+      province: 'Koh Phangan',
+    },
+    { pattern: /\bkoh chang\b|\bเกาะช้าง\b|\bchang\b/i, province: 'Koh Chang' },
+    { pattern: /\bhai yai\b|\bหาดใหญ่\b/i, province: 'Hat Yai' },
+    { pattern: /\bhat yai\b|\bหาดใหญ่\b/i, province: 'Hat Yai' },
+    { pattern: /\bkanchanaburi\b|\bกาญจนบุรี\b/i, province: 'Kanchanaburi' },
+    {
+      pattern: /\bayutthaya\b|\bอยุธยา\b|\bพระนครศรีอยุธยา\b/i,
+      province: 'Ayutthaya',
+    },
+    { pattern: /\bhuahin\b|\bหัวหิน\b|\bhua hin\b/i, province: 'Hua Hin' },
+    { pattern: /\bmae hong son\b|\bแม่ฮ่องสอน\b/i, province: 'Mae Hong Son' },
+    { pattern: /\bpai\b|\bปาย\b/i, province: 'Pai' },
+    { pattern: /\bsukhothai\b|\bสุโขทัย\b/i, province: 'Sukhothai' },
+    { pattern: /\bchiang dao\b|\bเชียงดาว\b/i, province: 'Chiang Mai' },
+    { pattern: /\blampang\b|\bลำปาง\b/i, province: 'Lampang' },
+    { pattern: /\blamphun\b|\bลำพูน\b/i, province: 'Lamphun' },
+    { pattern: /\bnan\b|\bน่าน\b/i, province: 'Nan' },
+    { pattern: /\bphan(\s+)?nga\b|\bพังงา\b/i, province: 'Phang Nga' },
+    { pattern: /\btrang\b|\bตรัง\b/i, province: 'Trang' },
+    { pattern: /\bsurat thani\b|\bสุราษฎร์ธานี\b/i, province: 'Surat Thani' },
+    {
+      pattern: /\bnakhon ratchasima\b|\bนครราชสีมา\b|\bkorat\b|\bโคราช\b/i,
+      province: 'Nakhon Ratchasima',
+    },
+    { pattern: /\bkhon kaen\b|\bขอนแก่น\b/i, province: 'Khon Kaen' },
+    { pattern: /\bchaiyaphum\b|\bชัยภูมิ\b/i, province: 'Chaiyaphum' },
+    { pattern: /\btrat\b|\bตราด\b/i, province: 'Trat' },
+    { pattern: /\brayong\b|\bระยอง\b/i, province: 'Rayong' },
+    { pattern: /\bchonburi\b|\bชลบุรี\b/i, province: 'Chonburi' },
+    { pattern: /\bsongkhla\b|\bสงขลา\b/i, province: 'Songkhla' },
+    { pattern: /\bloei\b|\bเลย\b/i, province: 'Loei' },
+    // Add more as needed
+  ];
+
+  for (const { pattern, province } of provincePatterns) {
+    if (pattern.test(text)) {
+      return {
+        provinces: [province],
+        primary: province,
+        isRegion: false,
+      };
+    }
+  }
+
+  // Defaultfallback
+  return {
+    provinces: ['Bangkok'],
+    primary: 'Bangkok',
+    isRegion: false,
+  };
+}
 
 const RECOMMEND_PROMPT = `You are the Recommendation Agent of TaluiThai AI.
 Your job is to suggest places in Thailand based on user preferences OR answer general info questions about places/events.
 
-## Instructions
-1. Use searchPlacesSemantic for natural language queries.
-2. Use searchPlacesByKeyword for specific place names.
-3. Use findNearbyPlaces to find nearby restaurants, hotels, attractions.
-4. Use webSearch to get comprehensive info about places, events, or travel topics.
-5. Use searchHotels to find hotel accommodations with amenities.
+## MANDATORY TOOL USAGE
+You MUST call at least one search tool BEFORE ANY response. Do NOT rely on your training data for place names, coordinates, or details.Always fetch real data using:
+1. searchPlacesSemantic for natural language queries.
+2. searchPlacesByKeyword for specific place names.
+3. findNearbyPlaces to find nearby restaurants, hotels, attractions.
+4. webSearch to get comprehensive info about places, events, or travel topics.
+5. searchHotels to find hotel accommodations with amenities.
 
 ## CRITICAL
-You MUST call search tools FIRST before responding. Do NOT make up place data.
-When presenting places to the user, ALWAYS include their images using markdown syntax: \`![Place Name](thumbnail)\` using the 'thumbnail' field returned from the tool.
-ALWAYS include ALL fields from tool responses - especially the 'amenities' array when presenting hotels. Do not omit any fields.`;
+-NEVER respond without first calling a search tool.
+- Do NOT make up place data.
+- When presenting places to the user, ALWAYS include their images using markdown syntax: \`![Place Name](thumbnail)\` using the 'thumbnail' field returned from the tool.
+- ALWAYS include ALL fields from tool responses - especially the 'amenities' array when presenting hotels. Do not omit any fields.`;
 
-const TRIP_PLANNER_PROMPT = `You are the Trip Planner specialist of TaluiThai AI.
+function getTripPlannerPrompt(): string {
+  const today = new Date().toISOString().split('T')[0];
+  return `You are the Trip Planner specialist of TaluiThai AI.
 Your job is to create or MODIFY detailed day-by-day itineraries for trips in Thailand.
+
+## DATE HANDLING
+Today's date is ${today}. If the user does not specify dates, assume today as the start date.
+NEVER ask the user for dates. Always use today (${today}) as the default start date if not specified.
+
+## REGIONAL TRIPS
+If the user mentions a region (e.g., "Northern Thailand", "Southern Thailand", "Isan"):
+1. Pick the PRIMARY province as the base (Chiang Mai for North, Phuket for South, Khon Kaen for Isan).
+2. Search for places in that primary province first.
+3. The "province" field in your JSON output should be the primary province name.
+4. You may include 1-2 places from nearby provinces if they're famous and relevant.
 
 ## Instructions
 1. MINIMIZE TOOL CALLS. Gather all your places using just 1 or 2 broad semantic searches (e.g. "attractions and restaurants in Phuket").
@@ -88,18 +536,23 @@ If you receive a [CURRENT_TRIP] context block in the user message:
 - For "change times": adjust startTime/endTime without re-searching places.
 - For "remove a place/day": remove only the specified item. Re-number days if needed.
 - Output the FULL updated trip JSON (all days, not just the changed parts).`;
+}
 
 const BUDGET_PROMPT = `You are the Budget Agent of TaluiThai AI.
 Your job is to estimate trip costs based on REAL PRICES from web search.
+
+## ROLE CONSTRAINTS
+You are ONLY for budget estimation. Do NOT create itineraries, suggest places, or make travel recommendations.
+Your sole output is a JSON budget breakdown.
 
 ## Workflow:
 
 ### STEP 1: Search for Real Prices (REQUIRED)
 Search for actual prices in the destination. Use webSearch for each category:
 
-1. **Accommodation**: Search "ราคาที่พัก [จังหังหวัด] โรงแรม 2024"
-2. **Food**: Search "ราคาอาหาร [จังหังหวัด] ร้านอาหารเฉลี่ย"
-3. **Transport**: Search "ค่าเดินทาง [จังหังหวัด] รถแดง รถตู้"
+1. **Accommodation**: Search "ราคาที่พัก [จังหวัด] โรงแรม 2024"
+2. **Food**: Search "ราคาอาหาร [จังหวัด] ร้านอาหารเฉลี่ย"
+3. **Transport**: Search "ค่าเดินทาง [จังหวัด] รถแดง รถตู้"
 4. **Activities**: Search "ค่าเข้าชม [จุดท่องเที่ยวยอดนิยม]"
 
 Search at least 2-3 categories before calculating budget.
@@ -112,11 +565,9 @@ Search at least 2-3 categories before calculating budget.
   - Comfortable: 5,000-8,000 THB/day
 
 ### STEP 3: Include Fuel Cost from Route Distance
-If the route_agent has provided total_driving_distance_km in the conversation, calculate fuel cost:
-- Gasoline 95 price: 33.05 THB/liter
-- Average consumption: ~10 km/liter (city driving)
-- Formula: fuel_cost = total_driving_distance_km / 10 * 33.05
-- Add this as "ค่าน้ำมัน" (fuel cost) in transport expenses
+If the route_agent has provided total_driving_distance_km in the conversation, calculate fuel cost:- **ALWAYS use exactly 33.05 THB/liter** for gasoline - do NOT search for fuel prices- Average consumption: ~10 km/liter (city driving)
+  - Formula: fuel_cost = total_driving_distance_km / 10 * 33.05
+  - Add this as "ค่าน้ำมัน" (fuel cost) in transport expenses
 
 ### STEP 4: Generate Expenses Breakdown
 Break down ALL expenses by day and meal:
@@ -288,11 +739,13 @@ Your job is to find hotels and accommodations in Thailand.
 1. Extract the destination province/area from the user's message (e.g. "plan 3 day trip to Krabi" → "Krabi").
 2. Call searchHotels EXACTLY ONCE with the English province name and maxResults: 10.
 3. If the user requests specific amenities (pool, WiFi, breakfast, parking, fitness, hot tub, air conditioning), pass them in the "amenities" parameter.
-4. Output ONLY the JSON code block — no summary, no recap, no additional text.
+4. **PRICE FILTERING**: If the user specifies a budget or price limit (e.g., "under 3000 THB", "budget hotel", "ไม่เกิน 2000 บาท"), pass the maxPrice parameter to searchHotels with the numeric value in THB.
+5. Output ONLY the JSON code block — no summary, no recap, no additional text.
 
 ## CRITICAL RULES
 - Call searchHotels EXACTLY ONCE. Do NOT search again in Thai or with different keywords.
 - Do NOT call searchHotels more than once under any circumstance.
+- If user mentions a price limit,USE maxPrice parameter to filter results.
 - Output ONLY the JSON block below — nothing else before or after.
 - End your turn immediately after outputting the JSON block.
 
@@ -618,6 +1071,11 @@ const TRIP_KEYWORDS = [
   'trip',
   'plan',
   'itinerary',
+  'travel',
+  'vacation',
+  'holiday',
+  'getaway',
+  'weekend',
   'ทริป',
   'แผนเที่ยว',
   'วางแผน',
@@ -627,6 +1085,8 @@ const TRIP_KEYWORDS = [
   'จัดทริป',
   'เที่ยว.*วัน',
   'วัน.*เที่ยว',
+  'ท่องเที่ยว',
+  'ไปเที่ยว',
   // Modification keywords
   'change.*trip',
   'modify.*trip',
@@ -709,10 +1169,78 @@ const HOTEL_KEYWORDS = [
   'ที่จอดรถ',
 ];
 
-function detectIntent(
-  text: string,
-): 'trip' | 'recommend' | 'route' | 'event' | 'hotel' | 'ambiguous' {
+// Modification detection patterns for trip modifications
+const TRIP_MODIFY_KEYWORDS = [
+  // English - day-specific
+  /\bon\s+(the\s+)?(first|second|third|fourth|fifth)\s+day\b/i,
+  /\bon\s+day\s*\d+/i,
+  /\bday\s*\d+.*\b(add|change|remove|replace|update|modify)\b/i,
+  /\b(add|change|remove|replace|update|modify)\b.*\b(day\s*\d+|schedule|itinerary)\b/i,
+  // English - general modification
+  /\bswap\b/i,
+  /\binsert\b.*\b(after|before|in)\b/i,
+  /\bchange\s+(the\s+)?(schedule|trip|plan|itinerary)\b/i,
+  /\bmodify\s+(the\s+)?(trip|itinerary|plan)\b/i,
+  /\bupdate\s+(the\s+)?(trip|itinerary|plan|schedule)\b/i,
+  /\badjust\s+(the\s+)?(trip|itinerary|plan|schedule)\b/i,
+  /\breplace\s+.+?\s+with\b/i,
+  /\bremove\s+.+?\s+from\b/i,
+  /\badd\s+.+?\s+to\s+(day\s*\d+|the\s+trip)\b/i,
+  // Thai patterns
+  /\bแก้ไข\s*(วัน|ทริป|แผน)\b/i,
+  /\bเพิ่ม.*วัน\b/i,
+  /\bลบ.*วัน\b/i,
+  /\bเปลี่ยน.*วัน\b/i,
+  /\bปรับ.*แผน\b/i,
+  /\bเปลี่ยน.*ทริป\b/i,
+];
+
+// Modification detection patterns for budget modifications
+const BUDGET_MODIFY_KEYWORDS = [
+  // English
+  /\breduce\s+(the\s+)?(cost|budget|price|expense)/i,
+  /\bincrease\s+(the\s+)?(cost|budget|price)/i,
+  /\bmake\s+it\s+(cheaper|less\s+expensive)/i,
+  /\blower\s+(the\s+)?(cost|price|budget)/i,
+  /\badjust\s+(the\s+)?budget/i,
+  /\bchange\s+(the\s+)?budget/i,
+  /\bsave\s+money/i,
+  /\bcut\s+(costs?|expenses)/i,
+  /\b(cheaper|more\s+affordable)\s+(option|trip|hotel)/i,
+  // Thai
+  /\bลด(งบ|ค่าใช้จ่าย|ราคา)\b/i,
+  /\bงบประมาณ.*(\bลด\b|\bเพิ่ม\b)/i,
+  /\bปรับ.*งบ\b/i,
+];
+
+type Intent =
+  | 'trip'
+  | 'trip_modify'
+  | 'budget_modify'
+  | 'recommend'
+  | 'route'
+  | 'event'
+  | 'hotel'
+  | 'ambiguous';
+
+interface IntentContext {
+  hasTrip?: boolean;
+  hasBudget?: boolean;
+}
+
+function detectIntent(text: string, context?: IntentContext): Intent {
   const lower = text.toLowerCase();
+  const hasTrip = context?.hasTrip ?? false;
+  const hasBudget = context?.hasBudget ?? false;
+
+  // Check modification patterns first (requires existing trip/budget)
+  if (hasTrip && TRIP_MODIFY_KEYWORDS.some((p) => p.test(text))) {
+    return 'trip_modify';
+  }
+
+  if (hasBudget && BUDGET_MODIFY_KEYWORDS.some((p) => p.test(text))) {
+    return 'budget_modify';
+  }
 
   const matchCount = (keywords: string[]) =>
     keywords.filter((kw) => new RegExp(kw, 'i').test(lower)).length;
@@ -732,9 +1260,26 @@ function detectIntent(
   );
   if (maxScore === 0) return 'ambiguous';
 
+  // Tie-breaking: when tripScore == recommendScore, check for day/duration indicators
+  const hasDayIndicator =
+    /\b(\d+)\s*(day|days|วัน)\b/i.test(lower) ||
+    /half.?day|day.?trip/i.test(lower);
+
   if (tripScore === maxScore && tripScore > recommendScore) return 'trip';
+  if (tripScore === maxScore && tripScore === recommendScore && hasDayIndicator)
+    return 'trip';
+  if (tripScore === maxScore && tripScore >= 2 && recommendScore <= 1)
+    return 'trip';
+
   if (recommendScore === maxScore && recommendScore > tripScore)
     return 'recommend';
+  if (
+    recommendScore === maxScore &&
+    recommendScore === tripScore &&
+    !hasDayIndicator
+  )
+    return 'recommend';
+
   if (routeScore === maxScore) return 'route';
   if (eventScore === maxScore) return 'event';
   if (hotelScore === maxScore && hotelScore > 0) return 'hotel';
@@ -775,6 +1320,46 @@ function extractMessageContent(msg: unknown): string {
     return (m.kwargs as Record<string, unknown>).content as string;
   }
   return '';
+}
+
+function isDayTripRequest(text: string): boolean {
+  const lower = text.toLowerCase();
+
+  // Early exit: multi-day trip patterns like "3-day trip", "5 day trip"
+  // These are NOT day trips, so return false immediately
+  if (/\d+\s*-?\s*day\s*trip/i.test(lower)) return false;
+
+  const dayTripPatterns = [
+    /\b1\s*day\b/,
+    /\bday\s*trip\b/,
+    /\bhalf\s*day\b/,
+    /\bวันเดียว\b/,
+    /\bครึ่งวัน\b/,
+    /\bไปเช้าเย็นกลับ\b/,
+  ];
+  const noHotelPatterns = [
+    /\bno\s*hotel\b/,
+    /\bwithout\s*hotel\b/,
+    /\bno\s*accommodation\b/,
+    /\bไม่ต้องการโรงแรม\b/,
+    /\bไม่พักค้าง\b/,
+    /\bno\s*stay\b/,
+  ];
+
+  const hasDayIndicators = /(\d+)\s*(day|days|วัน)\b/i.test(lower);
+  const isSingleDay = dayTripPatterns.some((p) => p.test(lower));
+  const explicitNoHotel = noHotelPatterns.some((p) => p.test(lower));
+
+  if (explicitNoHotel) return true;
+  if (isSingleDay) return true;
+  if (hasDayIndicators) {
+    const match = lower.match(/(\d+)\s*(day|days|วัน)\b/i);
+    if (match) {
+      const numDays = parseInt(match[1], 10);
+      if (numDays <= 1) return true;
+    }
+  }
+  return false;
 }
 
 function extractRouteInput(messages: unknown[]): ExtractedRouteInput | null {
@@ -850,7 +1435,7 @@ function extractRouteInput(messages: unknown[]): ExtractedRouteInput | null {
       price_range: typeof h.priceRange === 'string' ? h.priceRange : undefined,
     }));
 
-  if (places.length === 0 || shortlistedHotels.length === 0) return null;
+  if (places.length === 0) return null;
 
   return {
     user_location: { latitude: 13.7563, longitude: 100.5018 }, // Bangkok default
@@ -868,6 +1453,60 @@ function parseHotelPrice(priceRange: string | undefined): number | null {
   if (!priceRange) return null;
   const match = priceRange.replace(/,/g, '').match(/(\d+)/);
   return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * Extract trip JSON from agent messages
+ */
+function extractTripJsonFromMessages(messages: unknown[]): TripJson | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = extractMessageContent(messages[i]);
+    if (!content) continue;
+    for (const block of parseJsonCodeBlocks(content)) {
+      if (
+        Array.isArray(block.parsed?.days) &&
+        typeof block.parsed.province === 'string'
+      ) {
+        return block.parsed as unknown as TripJson;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract budget JSON from agent messages
+ */
+function extractBudgetJsonFromMessages(messages: unknown[]): BudgetJson | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = extractMessageContent(messages[i]);
+    if (!content) continue;
+    for (const block of parseJsonCodeBlocks(content)) {
+      if (
+        Array.isArray(block.parsed?.expenses) &&
+        typeof block.parsed?.total === 'number'
+      ) {
+        return block.parsed as unknown as BudgetJson;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract hotels JSON from agent messages
+ */
+function extractHotelJsonFromMessages(messages: unknown[]): HotelJson | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = extractMessageContent(messages[i]);
+    if (!content) continue;
+    for (const block of parseJsonCodeBlocks(content)) {
+      if (Array.isArray(block.parsed?.hotels)) {
+        return block.parsed as unknown as HotelJson;
+      }
+    }
+  }
+  return null;
 }
 
 export function buildTravelAgentGraph(
@@ -944,7 +1583,7 @@ export function buildTravelAgentGraph(
       'searchEvents',
     ),
     name: 'trip_planner',
-    systemPrompt: TRIP_PLANNER_PROMPT,
+    systemPrompt: getTripPlannerPrompt(),
   });
 
   const budgetAgent = createAgent({
@@ -956,12 +1595,7 @@ export function buildTravelAgentGraph(
 
   const routeAgent = createAgent({
     model,
-    tools: pick(
-      'calculateRoute',
-      'planRoute',
-      'searchPlacesSemantic',
-      'webSearch',
-    ),
+    tools: pick('calculateRoute', 'planRoute'),
     name: 'route_agent',
     systemPrompt: ROUTE_PROMPT,
   });
@@ -991,7 +1625,7 @@ export function buildTravelAgentGraph(
     ] as any[],
     llm: supervisorModel,
     prompt: SUPERVISOR_PROMPT,
-    outputMode: 'last_message',
+    outputMode: 'full_history',
     supervisorName: 'supervisor',
   });
 
@@ -1007,12 +1641,30 @@ export function buildTravelAgentGraph(
   const compiledHotelAgent = hotelAgent.graph;
 
   // Intent short-circuit using custom StateGraph
-  const intentGraph = new StateGraph(MessagesAnnotation)
+  const intentGraph = new StateGraph(TravelAgentAnnotation)
     .addNode('intentRouter', async (state) => {
       const lastMessage = state.messages[state.messages.length - 1];
       const content =
         typeof lastMessage?.content === 'string' ? lastMessage.content : '';
-      const intent = detectIntent(content);
+
+      const hasTrip = state.currentTrip !== null;
+      const hasBudget = state.currentBudget !== null;
+
+      // Debug logging for state context
+      console.log('[intentRouter] State context:', {
+        hasTrip,
+        hasBudget,
+        currentTripName: state.currentTrip?.name || null,
+        messageContent: content.substring(0, 100),
+      });
+
+      // Pass state context for modification detection
+      const intent = detectIntent(content, {
+        hasTrip,
+        hasBudget,
+      });
+
+      console.log('[intentRouter] Detected intent:', intent);
 
       return {
         messages: [
@@ -1031,13 +1683,66 @@ export function buildTravelAgentGraph(
           ),
       );
 
-      // Step 1: Run trip_planner + hotel_agent IN PARALLEL
-      // Note: do NOT pass config here — it causes both agents' streaming tokens
-      // to propagate simultaneously, producing garbled interleaved text in chat
-      const [tripResult, hotelResult] = await Promise.all([
-        compiledTripPlanner.invoke({ messages }),
-        compiledHotelAgent.invoke({ messages }),
-      ]);
+      // Detect day trip to conditionally skip hotel search
+      const messageTexts = messages.map((m) => {
+        if (typeof m.content === 'string') return m.content;
+        const kwargs = (m as unknown as { kwargs?: unknown }).kwargs;
+        if (kwargs && typeof kwargs === 'object') {
+          return ((kwargs as Record<string, unknown>).content as string) || '';
+        }
+        return '';
+      });
+      const messageText =
+        messageTexts.find((t) => t && !t.startsWith('__intent__')) || '';
+      const isDayTrip = isDayTripRequest(messageText);
+
+      // Debug logging for day trip detection
+      console.log('[tripPipeline] Day trip detection:', {
+        messageText: messageText.substring(0, 100),
+        isDayTrip,
+        messagesCount: messages.length,
+      });
+
+      // Extract destination province(s) for regional trip handling
+      const destinationInfo = extractDestinationProvinces(messageText);
+      const primaryProvince = destinationInfo.primary;
+      const isRegion = destinationInfo.isRegion;
+
+      // For regional trips, inject context message for hotel agent
+      const hotelMessages = isRegion
+        ? [
+            ...messages,
+            new HumanMessage({
+              content: `[PROVINCE CONTEXT] For accommodation search, use "${primaryProvince}" as the primary province. This is the main hub for the ${messageText.includes('North') || messageText.includes('เหนือ') ? 'Northern' : messageText.includes('South') || messageText.includes('ใต้') ? 'Southern' : messageText.includes('Isan') || messageText.includes('อีสาน') ? 'Northeastern' : 'requested'} Thailand region.`,
+            }),
+          ]
+        : messages;
+
+      // Step 1: Run trip_planner + hotel_agent (parallel for multi-day, sequential for day trips)
+      let tripResult, hotelResult;
+
+      if (isDayTrip) {
+        // Day trip: run only trip planner, create empty hotel result
+        tripResult = await compiledTripPlanner.invoke({ messages });
+        hotelResult = {
+          messages: [
+            new AIMessage({
+              content: JSON.stringify({
+                hotels: [],
+                count: 0,
+                dayTripNote: 'No accommodation needed for day trip',
+              }),
+              name: 'hotel_agent',
+            }),
+          ],
+        };
+      } else {
+        // Multi-day trip: run BOTH in parallel for speed
+        [tripResult, hotelResult] = await Promise.all([
+          compiledTripPlanner.invoke({ messages }),
+          compiledHotelAgent.invoke({ messages: hotelMessages }),
+        ]);
+      }
 
       // Merge messages from both agents
       const mergedMessages = [...tripResult.messages, ...hotelResult.messages];
@@ -1174,7 +1879,17 @@ export function buildTravelAgentGraph(
         routeMessages = budgetResult.messages;
       }
 
-      return { messages: routeMessages };
+      // Extract structured data for state persistence
+      const tripJson = extractTripJsonFromMessages(routeMessages);
+      const budgetJson = extractBudgetJsonFromMessages(routeMessages);
+      const hotelJson = extractHotelJsonFromMessages(mergedMessages);
+
+      return {
+        messages: routeMessages,
+        currentTrip: tripJson,
+        currentBudget: budgetJson,
+        currentHotels: hotelJson,
+      };
     })
     .addNode('hotelPipeline', async (state, config) => {
       const messages = state.messages.filter(
@@ -1216,6 +1931,181 @@ export function buildTravelAgentGraph(
       const result = await compiledEventAgent.invoke({ messages }, config);
       return { messages: result.messages };
     })
+    .addNode('tripModifyPipeline', async (state, config) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+
+      // Get current trip from state
+      const currentTrip = state.currentTrip;
+
+      // Debug logging for state persistence
+      console.log('[tripModifyPipeline] State check:', {
+        hasCurrentTrip: currentTrip !== null,
+        currentTripName: currentTrip?.name || null,
+        currentTripDays: currentTrip?.days?.length || 0,
+      });
+
+      if (!currentTrip) {
+        console.log('[tripModifyPipeline] No current trip found in state');
+        return {
+          messages: [
+            new AIMessage({
+              content:
+                "I don't have a current trip to modify. Please create a trip first by saying something like 'Plan a 3-day trip to Phuket'.",
+            }),
+          ],
+        };
+      }
+
+      // Extract user's modification request from messages
+      const userContent = messages
+        .map((m) => {
+          if (typeof m.content === 'string') return m.content;
+          const kwargs = (m as unknown as { kwargs?: unknown }).kwargs;
+          if (kwargs && typeof kwargs === 'object') {
+            return (
+              ((kwargs as Record<string, unknown>).content as string) || ''
+            );
+          }
+          return '';
+        })
+        .join('\n');
+
+      // Inject [CURRENT_TRIP] context with explicit action instruction
+      const enrichedMessages = [
+        ...messages,
+        new HumanMessage({
+          content: `[CURRENT_TRIP]
+${JSON.stringify(currentTrip, null, 2)}
+
+---
+
+The user wants to modify the above trip. Here is their request:
+
+"${userContent}"
+
+Please apply ONLY the requested changes to the trip. Keep all unchanged days, places, and times exactly as they are. Output the FULL updated trip JSON.`,
+        }),
+      ];
+
+      // Invoke trip_planner with context
+      const result = await compiledTripPlanner.invoke(
+        { messages: enrichedMessages },
+        config,
+      );
+
+      // Extract updated trip from result
+      const updatedTrip = extractTripJsonFromMessages(result.messages);
+
+      if (!updatedTrip) {
+        // LLM failed to produce valid trip JSON
+        return {
+          messages: [
+            ...result.messages,
+            new AIMessage({
+              content:
+                "I couldn't parse the updated trip. Could you please clarify your request? For example:\n" +
+                "• 'Add [place name] to day [number]'\n" +
+                "• 'Remove [place name] from day [number]'\n" +
+                "• 'Replace [place A] with [place B] on day [number]'",
+            }),
+          ],
+          currentTrip: currentTrip, // Keep original
+        };
+      }
+
+      return {
+        messages: result.messages,
+        currentTrip: updatedTrip,
+      };
+    })
+    .addNode('budgetModifyPipeline', async (state, config) => {
+      const messages = state.messages.filter(
+        (m) =>
+          !(
+            typeof m.content === 'string' && m.content.startsWith('__intent__:')
+          ),
+      );
+
+      // Get current budget from state
+      const currentBudget = state.currentBudget;
+
+      if (!currentBudget) {
+        return {
+          messages: [
+            new AIMessage({
+              content:
+                "I don't have a current budget to modify. Please create a trip first to generate a budget.",
+            }),
+          ],
+        };
+      }
+
+      // Extract user's modification request
+      const userContent = messages
+        .map((m) => {
+          if (typeof m.content === 'string') return m.content;
+          const kwargs = (m as unknown as { kwargs?: unknown }).kwargs;
+          if (kwargs && typeof kwargs === 'object') {
+            return (
+              ((kwargs as Record<string, unknown>).content as string) || ''
+            );
+          }
+          return '';
+        })
+        .join('\n');
+
+      // Inject [CURRENT_BUDGET] context
+      const enrichedMessages = [
+        ...messages,
+        new HumanMessage({
+          content: `[CURRENT_BUDGET]
+${JSON.stringify(currentBudget, null, 2)}
+
+---
+
+The user wants to modify the above budget. Here is their request:
+
+"${userContent}"
+
+Please apply ONLY the requested changes to the budget. Adjust amounts as requested while maintaining the same structure. Output the FULL updated budget JSON.`,
+        }),
+      ];
+
+      // Invoke budget_agent with context
+      const result = await compiledBudgetAgent.invoke(
+        { messages: enrichedMessages },
+        config,
+      );
+
+      // Extract updated budget from result
+      const updatedBudget = extractBudgetJsonFromMessages(result.messages);
+
+      if (!updatedBudget) {
+        return {
+          messages: [
+            ...result.messages,
+            new AIMessage({
+              content:
+                "I couldn't parse the updated budget. Could you please clarify your request? For example:\n" +
+                "• 'Reduce the total budget to [amount]'\n" +
+                "• 'Lower accommodation costs'\n" +
+                "• 'Adjust food budget for day 2'",
+            }),
+          ],
+          currentBudget: currentBudget,
+        };
+      }
+
+      return {
+        messages: result.messages,
+        currentBudget: updatedBudget,
+      };
+    })
     .addNode('supervisorFallback', async (state, config) => {
       const messages = state.messages.filter(
         (m) =>
@@ -1239,6 +2129,10 @@ export function buildTravelAgentGraph(
       switch (intent) {
         case 'trip':
           return 'tripPipeline';
+        case 'trip_modify':
+          return 'tripModifyPipeline';
+        case 'budget_modify':
+          return 'budgetModifyPipeline';
         case 'recommend':
           return 'recommendPipeline';
         case 'route':
@@ -1252,6 +2146,8 @@ export function buildTravelAgentGraph(
       }
     })
     .addEdge('tripPipeline', '__end__')
+    .addEdge('tripModifyPipeline', '__end__')
+    .addEdge('budgetModifyPipeline', '__end__')
     .addEdge('recommendPipeline', '__end__')
     .addEdge('routePipeline', '__end__')
     .addEdge('eventPipeline', '__end__')

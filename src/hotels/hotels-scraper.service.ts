@@ -30,6 +30,7 @@ export interface SearchHotelsOptions {
   currency?: string;
   maxResults?: number;
   amenities?: string[];
+  maxPrice?: number;
 }
 
 const DEFAULT_NUM_OF_ADULTS = 2;
@@ -56,12 +57,15 @@ export class HotelsScraperService {
   }
 
   async searchHotels(options: SearchHotelsOptions): Promise<ScrapedHotel[]> {
-    const { maxResults = 10 } = options;
+    const { maxResults = 10, maxPrice } = options;
 
     // 1. Try SerpAPI first (fast, reliable)
     try {
       this.logger.log('Trying SerpAPI first...');
-      const serpapiHotels = await this.serpApiService.searchHotels(options);
+      const serpapiHotels = await this.serpApiService.searchHotels({
+        ...options,
+        maxPrice,
+      });
       if (serpapiHotels.length > 0) {
         this.logger.log(`SerpAPI returned ${serpapiHotels.length} hotels`);
         await this.upsertHotels(serpapiHotels);

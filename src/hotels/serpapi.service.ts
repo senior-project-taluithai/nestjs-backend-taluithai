@@ -83,6 +83,7 @@ export class SerpApiService {
     currency?: string;
     maxResults?: number;
     amenities?: string[];
+    maxPrice?: number;
   }): Promise<ScrapedHotel[]> {
     if (this.apiKeys.length === 0) {
       this.logger.warn('SerpAPI keys not configured');
@@ -99,6 +100,7 @@ export class SerpApiService {
       currency = 'THB',
       maxResults = 10,
       amenities,
+      maxPrice,
     } = options;
 
     const today = new Date();
@@ -128,6 +130,12 @@ export class SerpApiService {
           `Filtering by amenities: ${amenities.join(', ')} → codes: ${amenityCodes}`,
         );
       }
+    }
+
+    // Add max price filter if specified (SerpAPI uses 'max_price' parameter)
+    if (maxPrice) {
+      params.set('max_price', Math.round(maxPrice).toString());
+      this.logger.log(`Filtering by max price: ${maxPrice} THB`);
     }
 
     const url = `${this.baseUrl}?${params.toString()}`;

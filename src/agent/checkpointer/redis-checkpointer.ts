@@ -24,6 +24,10 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
     this.baseUrl = process.env.UPSTASH_REDIS_REST_URL!;
     this.token = process.env.UPSTASH_REDIS_REST_TOKEN!;
     this.ttlSeconds = config.ttlSeconds ?? DEFAULT_TTL_SECONDS;
+    console.log(
+      '[RedisCheckpointer] Initialized with URL:',
+      this.baseUrl?.substring(0, 30) + '...',
+    );
   }
 
   private async request<T>(
@@ -62,7 +66,7 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
     try {
       const response = await this.request<{ result: string | null }>(
         'GET',
-        `/${encodeURIComponent(this.getCheckpointKey(threadId))}`,
+        `/get/${encodeURIComponent(this.getCheckpointKey(threadId))}`,
       );
 
       if (!response.result) return undefined;
@@ -76,6 +80,8 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
     const threadId = config.configurable?.thread_id as string;
     if (!threadId) return undefined;
 
+    console.log('[RedisCheckpointer] getTuple called for thread:', threadId);
+
     try {
       const checkpointKey = this.getCheckpointKey(threadId);
       const metadataKey = this.getMetadataKey(threadId);
@@ -83,20 +89,38 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
       const [checkpointResult, metadataResult] = await Promise.all([
         this.request<{ result: string | null }>(
           'GET',
-          `/${encodeURIComponent(checkpointKey)}`,
+          `/get/${encodeURIComponent(checkpointKey)}`,
         ),
         this.request<{ result: string | null }>(
           'GET',
-          `/${encodeURIComponent(metadataKey)}`,
+          `/get/${encodeURIComponent(metadataKey)}`,
         ),
       ]);
 
-      if (!checkpointResult.result) return undefined;
+      if (!checkpointResult.result) {
+        console.log(
+          '[RedisCheckpointer] No checkpoint found for thread:',
+          threadId,
+        );
+        return undefined;
+      }
 
       const checkpoint = JSON.parse(checkpointResult.result) as Checkpoint;
       const storedMetadata = metadataResult.result
         ? (JSON.parse(metadataResult.result) as Record<string, unknown>)
         : {};
+
+      // Log state fields presence
+      const stateKeys = Object.keys(checkpoint);
+      console.log(
+        '[RedisCheckpointer] Retrieved checkpoint for thread:',
+        threadId,
+        {
+          stateKeys,
+          hasMessages: !!(checkpoint as unknown as Record<string, unknown>)
+            .channel_values,
+        },
+      );
 
       const metadata: CheckpointMetadata = {
         source: 'loop',
@@ -117,7 +141,11 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
         metadata,
         parentConfig,
       };
-    } catch {
+    } catch (error) {
+      console.error(
+        '[RedisCheckpointer] getTuple error:',
+        (error as Error).message,
+      );
       return undefined;
     }
   }
@@ -132,6 +160,11 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
       throw new Error('thread_id is required');
     }
 
+    console.log('[RedisCheckpointer] put called for thread:', threadId, {
+      checkpointId: checkpoint.id,
+      metadataStep: metadata.step,
+    });
+
     const userId = config.configurable?.userId as string | undefined;
     const checkpointKey = this.getCheckpointKey(threadId);
     const metadataKey = this.getMetadataKey(threadId);
@@ -141,16 +174,33 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
       ...(userId && { userId }),
     };
 
-    await this.request('POST', '/pipeline', [
-      ['SET', checkpointKey, JSON.stringify(checkpoint), 'EX', this.ttlSeconds],
-      [
-        'SET',
-        metadataKey,
-        JSON.stringify(enrichedMetadata),
-        'EX',
-        this.ttlSeconds,
-      ],
-    ]);
+    try {
+      const checkpointJson = JSON.stringify(checkpoint);
+      console.log(
+        '[RedisCheckpointer] Saving checkpoint, size:',
+        checkpointJson.length,
+        'bytes',
+      );
+
+      await this.request('POST', '/pipeline', [
+        ['SET', checkpointKey, checkpointJson, 'EX', this.ttlSeconds],
+        [
+          'SET',
+          metadataKey,
+          JSON.stringify(enrichedMetadata),
+          'EX',
+          this.ttlSeconds,
+        ],
+      ]);
+
+      console.log(
+        '[RedisCheckpointer] Successfully saved checkpoint for thread:',
+        threadId,
+      );
+    } catch (error) {
+      console.error('[RedisCheckpointer] put error:', (error as Error).message);
+      throw error;
+    }
 
     return {
       configurable: { thread_id: threadId, checkpoint_id: checkpoint.id },
@@ -182,7 +232,7 @@ class UpstashRedisCheckpointer extends BaseCheckpointSaver {
     ];
 
     for (const key of keys) {
-      await this.request('DEL', `/${encodeURIComponent(key)}`);
+      await this.request('POST', '/pipeline', [['DEL', key]]);
     }
   }
 

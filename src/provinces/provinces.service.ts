@@ -19,19 +19,34 @@ export class ProvincesService {
     return this.provincesRepository.findOne({ where: { id } });
   }
 
-  async findByNameEn(name: string): Promise<Province | null> {
-    // Try exact match first
+  async findByName(name: string): Promise<Province | null> {
+    const normalizedName = name.trim().replace(/_/g, ' ').replace(/\s+/g, ' ');
+
+    if (!normalizedName) {
+      return null;
+    }
+
     const exact = await this.provincesRepository
       .createQueryBuilder('p')
-      .where('LOWER(p.name_en) = LOWER(:name)', { name })
+      .where('LOWER(p.name) = LOWER(:name)', { name: normalizedName })
+      .orWhere('LOWER(p.name_en) = LOWER(:name)', { name: normalizedName })
       .getOne();
-    if (exact) return exact;
 
-    // Fallback to LIKE match
+    if (exact) {
+      return exact;
+    }
+
     return this.provincesRepository
       .createQueryBuilder('p')
-      .where('LOWER(p.name_en) LIKE LOWER(:name)', { name: `%${name}%` })
+      .where('LOWER(p.name) LIKE LOWER(:name)', { name: `%${normalizedName}%` })
+      .orWhere('LOWER(p.name_en) LIKE LOWER(:name)', {
+        name: `%${normalizedName}%`,
+      })
       .getOne();
+  }
+
+  async findByNameEn(name: string): Promise<Province | null> {
+    return this.findByName(name);
   }
 
   async create(createProvinceDto: CreateProvinceDto): Promise<Province> {

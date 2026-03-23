@@ -32,6 +32,7 @@ import {
 import { randomUUID } from 'crypto';
 import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { truncateMessagesIfNeeded } from './utils/context-manager';
+import { TripJson, BudgetJson, HotelJson } from './state';
 
 // Phase 1.2: Lower recursion limits to prevent runaway loops
 const DEFAULT_RECURSION_LIMIT = 25;
@@ -44,7 +45,12 @@ export interface ThreadInfo {
   updated_at: string;
   metadata: Record<string, unknown>;
   status: string;
-  values: Record<string, unknown>;
+  values: Record<string, unknown> & {
+    messages?: unknown[];
+    currentTrip?: TripJson | null;
+    currentBudget?: BudgetJson | null;
+    currentHotels?: HotelJson | null;
+  };
 }
 
 @Injectable()
@@ -115,7 +121,7 @@ export class AgentService implements OnModuleInit {
       updated_at: now,
       metadata: userId ? { userId } : {},
       status: 'idle',
-      values: {},
+      values: { messages: [] },
     };
     this.threads.set(threadId, thread);
     this.logger.log(
@@ -216,7 +222,7 @@ export class AgentService implements OnModuleInit {
         updated_at: now,
         metadata: {},
         status: 'idle',
-        values: {},
+        values: { messages: [] },
       });
     } else {
       const thread = this.threads.get(threadId)!;
@@ -300,6 +306,28 @@ export class AgentService implements OnModuleInit {
     delete streamConfig.recursionLimit;
 
     try {
+      // Debug: Check existing state from checkpointer before running
+      let existingState: Record<string, unknown> | null = null;
+      try {
+        const existingSnapshot = await this.graph.getState({
+          configurable: { thread_id: threadId },
+        });
+        if (existingSnapshot?.values) {
+          existingState = existingSnapshot.values as Record<string, unknown>;
+          this.logger.log(
+            `[streamRun] Existing state loaded - hasTrip: ${!!existingState.currentTrip}, hasBudget: ${!!existingState.currentBudget}`,
+          );
+        } else {
+          this.logger.log(
+            '[streamRun] No existing state found in checkpointer',
+          );
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[streamRun] Could not load existing state: ${(e as Error).message}`,
+        );
+      }
+
       const eventStream = this.graph.streamEvents(
         { messages: truncatedMessages },
         {
@@ -350,6 +378,11 @@ export class AgentService implements OnModuleInit {
 
       // Phase 3: Post-processing validation pipeline
       lastState = await this.postProcessState(lastState);
+
+      // Debug: Log persisted state
+      this.logger.log(
+        `[streamRun] Final state - hasTrip: ${!!lastState.currentTrip}, hasBudget: ${!!lastState.currentBudget}, hasHotels: ${!!lastState.currentHotels}`,
+      );
 
       // Emit final values with messages converted to simple format
       const convertedState = this.convertStateMessages(lastState);
