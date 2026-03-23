@@ -64,39 +64,54 @@ export class QdrantService implements OnModuleInit {
       limit?: number;
       scoreThreshold?: number;
       filter?: Record<string, unknown>;
+      province?: string;
     },
   ): Promise<VectorSearchResult[]> {
-    const { limit = 10, scoreThreshold, filter } = options ?? {};
+    const { limit = 10, scoreThreshold, filter, province } = options ?? {};
 
     // Step 1: Encode query text to vector
     const queryVector = await this.embeddingService.encodeOne(query);
 
-    // Step 2: Search Qdrant
+    // Step 2: Build Qdrant filter
+    const qdrantFilter: Record<string, unknown>[] = [];
+
+    if (province) {
+      qdrantFilter.push({
+        key: 'address',
+        match: { text: province },
+      });
+    }
+
+    if (filter) {
+      qdrantFilter.push(filter);
+    }
+
+    // Step 3: Search Qdrant
     const searchParams: {
       collection_name: string;
       query: number[];
       limit: number;
       score_threshold?: number;
       filter?: Record<string, unknown>;
+      with_payload: boolean;
     } = {
       collection_name: this.collectionName,
       query: queryVector,
       limit,
+      with_payload: true,
     };
 
     if (scoreThreshold !== undefined) {
       searchParams.score_threshold = scoreThreshold;
     }
 
-    if (filter) {
-      searchParams.filter = filter;
+    if (qdrantFilter.length > 0) {
+      searchParams.filter = {
+        must: qdrantFilter,
+      };
     }
 
-    const results = await this.client.query(this.collectionName, {
-      query: queryVector,
-      limit,
-      with_payload: true,
-    });
+    const results = await this.client.query(this.collectionName, searchParams);
 
     return results.points.map((point) => this.mapPoint(point));
   }

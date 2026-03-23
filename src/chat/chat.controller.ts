@@ -126,6 +126,27 @@ export class ChatController {
     };
   }
 
+  @Get(':id/state')
+  @ApiOperation({ summary: 'Get structured agent state for a conversation' })
+  @ApiResponse({
+    status: 200,
+    description: 'Agent state for the conversation',
+  })
+  async getConversationState(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const state = await this.chatService.getAgentState(id, req.user.id);
+    return (
+      state || {
+        currentTrip: null,
+        currentBudget: null,
+        currentHotels: null,
+        conversationSummary: null,
+      }
+    );
+  }
+
   @Get(':id')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get a conversation by ID' })
@@ -255,6 +276,8 @@ export class ChatController {
       threadId: conversation.threadId,
       title: conversation.title,
       isActive: conversation.isActive,
+      hasTrip: !!conversation.agentState?.currentTrip,
+      hasBudget: !!conversation.agentState?.currentBudget,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     };

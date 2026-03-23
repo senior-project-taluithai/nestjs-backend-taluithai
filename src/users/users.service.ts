@@ -117,4 +117,87 @@ export class UsersService {
       preferredRegions: user.preferredRegions,
     };
   }
+
+  async mergeAgentPreferences(
+    userId: string,
+    prefs: Partial<{
+      travelStyle: string[];
+      dietaryRestrictions: string[];
+      interests: string[];
+      groupComposition: string;
+      budgetRange: { min?: number; max?: number };
+      accommodationPrefs: string[];
+    }>,
+  ): Promise<void> {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+    });
+    if (!user) return;
+
+    const existing = user.agentPreferences || {};
+
+    // Merge arrays by union (deduplicated)
+    const mergeArray = (
+      existingArr: string[] | undefined,
+      newArr: string[] | undefined,
+    ): string[] | undefined => {
+      if (!newArr) return existingArr;
+      if (!existingArr) return newArr;
+      return [...new Set([...existingArr, ...newArr])];
+    };
+
+    // Merge budget range by taking the wider range
+    const mergeBudgetRange = (
+      existingRange: { min?: number; max?: number } | undefined,
+      newRange: { min?: number; max?: number } | undefined,
+    ): { min?: number; max?: number } | undefined => {
+      if (!newRange) return existingRange;
+      if (!existingRange) return newRange;
+      return {
+        min: existingRange.min
+          ? newRange.min
+            ? Math.min(existingRange.min, newRange.min)
+            : existingRange.min
+          : newRange.min,
+        max: existingRange.max
+          ? newRange.max
+            ? Math.max(existingRange.max, newRange.max)
+            : existingRange.max
+          : newRange.max,
+      };
+    };
+
+    user.agentPreferences = {
+      travelStyle: mergeArray(existing.travelStyle, prefs.travelStyle),
+      dietaryRestrictions: mergeArray(
+        existing.dietaryRestrictions,
+        prefs.dietaryRestrictions,
+      ),
+      interests: mergeArray(existing.interests, prefs.interests),
+      groupComposition: prefs.groupComposition || existing.groupComposition,
+      budgetRange: mergeBudgetRange(existing.budgetRange, prefs.budgetRange),
+      accommodationPrefs: mergeArray(
+        existing.accommodationPrefs,
+        prefs.accommodationPrefs,
+      ),
+      lastUpdated: new Date().toISOString(),
+    };
+
+    await this.usersRepository.save(user);
+  }
+
+  async getAgentPreferences(userId: string): Promise<{
+    travelStyle?: string[];
+    dietaryRestrictions?: string[];
+    interests?: string[];
+    groupComposition?: string;
+    budgetRange?: { min?: number; max?: number };
+    accommodationPrefs?: string[];
+    lastUpdated?: string;
+  } | null> {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+    });
+    return user?.agentPreferences || null;
+  }
 }

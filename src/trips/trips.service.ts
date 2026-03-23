@@ -111,14 +111,8 @@ export class TripsService {
       createTripDto.end_date,
     );
 
-    // Recalculate budget total to ensure consistency
+    // Preserve budget total from AI planner - do not recalculate
     const tripBudget = createTripDto.budget;
-    if (tripBudget && Array.isArray(tripBudget.categories)) {
-      tripBudget.total = tripBudget.categories.reduce(
-        (acc: number, cat: any) => acc + (Number(cat.allocated) || 0),
-        0,
-      );
-    }
 
     // Create trip
     const newTrip = this.tripsRepository.create({
@@ -162,15 +156,7 @@ export class TripsService {
     if (updateTripDto.budget !== undefined) {
       const budgetData = updateTripDto.budget;
       if (budgetData) {
-        // Auto-calculate total from allocation
-        if (Array.isArray(budgetData.categories)) {
-          budgetData.total = budgetData.categories.reduce(
-            (acc: number, cat: any) => acc + (Number(cat.allocated) || 0),
-            0,
-          );
-        }
-
-        // Auto-calculate spent amounts if expenses are present
+        // Calculate spent amounts from expenses (do not modify allocated or total)
         if (Array.isArray(budgetData.expenses)) {
           // Reset spent counters
           if (Array.isArray(budgetData.categories)) {

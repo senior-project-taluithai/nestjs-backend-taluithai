@@ -17,16 +17,62 @@ export interface SerpApiHotelResult {
 @Injectable()
 export class SerpApiService {
   private readonly logger = new Logger(SerpApiService.name);
-  private readonly apiKey: string;
+  private readonly apiKeys: string[] = [];
+  private keyIndex = 0;
   private readonly baseUrl = 'https://serpapi.com/search';
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('SERPAPI_API_KEY', '');
-    if (!this.apiKey) {
+    const key1 = this.configService.get<string>('SERPAPI_API_KEY_TAR_KU', '');
+    const key2 = this.configService.get<string>('SERPAPI_API_KEY_TAR_IN', '');
+
+    if (key1) this.apiKeys.push(key1);
+    if (key2) this.apiKeys.push(key2);
+
+    if (this.apiKeys.length === 0) {
       this.logger.warn(
-        'SERPAPI_API_KEY not configured - SerpAPI fallback will be unavailable',
+        'No SerpAPI keys configured - SerpAPI will be unavailable',
+      );
+    } else {
+      this.logger.log(
+        `Loaded ${this.apiKeys.length} SerpAPI keys for round-robin`,
       );
     }
+  }
+
+  private getNextKey(): string {
+    if (this.apiKeys.length === 0) return '';
+    const key = this.apiKeys[this.keyIndex];
+    this.keyIndex = (this.keyIndex + 1) % this.apiKeys.length;
+    return key;
+  }
+
+  // SerpAPI Google Hotels amenity name → numeric code mapping
+  private static readonly AMENITY_CODES: Record<string, number> = {
+    'free wi-fi': 1,
+    wifi: 1,
+    'wi-fi': 1,
+    pool: 2,
+    'swimming pool': 2,
+    'fitness center': 4,
+    fitness: 4,
+    gym: 4,
+    'air conditioning': 6,
+    ac: 6,
+    'hot tub': 8,
+    jacuzzi: 8,
+    'free parking': 9,
+    parking: 9,
+    'free breakfast': 16,
+    breakfast: 16,
+  };
+
+  private mapAmenitiesToCodes(amenities: string[]): string {
+    const codes = new Set<number>();
+    for (const amenity of amenities) {
+      const code = SerpApiService.AMENITY_CODES[amenity.toLowerCase().trim()];
+      if (code) codes.add(code);
+    }
+    return Array.from(codes).join(',');
   }
 
   async searchHotels(options: {
@@ -36,11 +82,15 @@ export class SerpApiService {
     adults?: number;
     currency?: string;
     maxResults?: number;
+    amenities?: string[];
+    maxPrice?: number;
   }): Promise<ScrapedHotel[]> {
-    if (!this.apiKey) {
-      this.logger.warn('SerpAPI key not configured');
+    if (this.apiKeys.length === 0) {
+      this.logger.warn('SerpAPI keys not configured');
       return [];
     }
+
+    const apiKey = this.getNextKey();
 
     const {
       location,
@@ -49,6 +99,8 @@ export class SerpApiService {
       adults = 2,
       currency = 'THB',
       maxResults = 10,
+      amenities,
+      maxPrice,
     } = options;
 
     const today = new Date();
@@ -60,17 +112,37 @@ export class SerpApiService {
     const params = new URLSearchParams({
       engine: 'google_hotels',
       q: location,
-      check_in: checkIn,
-      check_out: checkOut,
+      check_in_date: checkIn,
+      check_out_date: checkOut,
       adults: adults.toString(),
       currency,
       gl: 'us',
       hl: 'en',
-      api_key: this.apiKey,
+      api_key: apiKey,
     });
 
+    // Add amenity filter codes if requested
+    if (amenities && amenities.length > 0) {
+      const amenityCodes = this.mapAmenitiesToCodes(amenities);
+      if (amenityCodes) {
+        params.set('amenities', amenityCodes);
+        this.logger.log(
+          `Filtering by amenities: ${amenities.join(', ')} → codes: ${amenityCodes}`,
+        );
+      }
+    }
+
+    // Add max price filter if specified (SerpAPI uses 'max_price' parameter)
+    if (maxPrice) {
+      params.set('max_price', Math.round(maxPrice).toString());
+      this.logger.log(`Filtering by max price: ${maxPrice} THB`);
+    }
+
     const url = `${this.baseUrl}?${params.toString()}`;
-    this.logger.log(`Calling SerpAPI: ${url.replace(this.apiKey, '***')}`);
+    const keyPrefix = apiKey.substring(0, 8);
+    this.logger.log(
+      `Calling SerpAPI with key ${keyPrefix}...: ${url.replace(apiKey, '***')}`,
+    );
 
     try {
       const response = await fetch(url, {
@@ -112,21 +184,41 @@ export class SerpApiService {
 
       for (const item of limitedResults) {
         try {
+          const firstImage =
+            item.images?.[0]?.thumbnail ||
+            item.images?.[0]?.original_image ||
+            item.thumbnail ||
+            '';
+          const imageUrls = (item.images || []).map(
+            (img: any) => img.original_image || img.thumbnail || img,
+          );
+
           const hotel: ScrapedHotel = {
-            name: item.title || item.name || 'Unknown Hotel',
+            name: item.name || item.title || 'Unknown Hotel',
             address: item.address || item.full_address || '',
-            latitude: item.coordinates?.latitude || item.lat || 0,
-            longitude: item.coordinates?.longitude || item.lng || 0,
-            rating: parseFloat(item.rating || '0'),
-            reviewCount: parseInt(item.reviews || '0', 10),
+            latitude:
+              item.gps_coordinates?.latitude || item.coordinates?.latitude || 0,
+            longitude:
+              item.gps_coordinates?.longitude ||
+              item.coordinates?.longitude ||
+              0,
+            rating: item.overall_rating || item.rating || item.hotel_class || 0,
+            reviewCount:
+              typeof item.reviews === 'number'
+                ? item.reviews
+                : parseInt(item.reviews || '0', 10),
             phone: item.phone_number || '',
-            thumbnail: item.thumbnail || item.images?.[0] || '',
+            thumbnail: firstImage,
             website: item.website || '',
             bookingUrl: item.link || item.booking_link || '',
-            priceRange: item.price || item.price_per_night || '',
+            priceRange:
+              item.rate_per_night?.lowest ||
+              item.total_rate?.lowest ||
+              item.price ||
+              '',
             prices: this.extractPrices(item),
-            photos: item.images || [],
-            imageUrls: item.images || [],
+            photos: imageUrls,
+            imageUrls,
             url: item.link || '',
             amenities: this.extractAmenities(item),
           };
@@ -147,35 +239,95 @@ export class SerpApiService {
     item: any,
   ): { provider: string; price: number; link: string }[] {
     const prices: { provider: string; price: number; link: string }[] = [];
+    const addedProviders = new Set<string>();
 
     try {
-      if (item.rate_per_night) {
-        const priceValue = parseFloat(
-          String(item.rate_per_night).replace(/[^0-9.]/g, ''),
-        );
-        if (!isNaN(priceValue)) {
-          prices.push({
-            provider: 'SerpAPI',
-            price: priceValue,
-            link: item.link || item.booking_link || '',
-          });
+      // Helper to add price if not duplicate
+      const addPrice = (provider: string, price: number, link: string) => {
+        const normalizedName = provider.trim().toLowerCase();
+        if (!addedProviders.has(normalizedName) && !isNaN(price) && price > 0) {
+          prices.push({ provider: provider.trim(), price, link });
+          addedProviders.add(normalizedName);
+        }
+      };
+
+      // 1. Extract from item.prices array (third-party providers)
+      // SerpAPI structure: { source: "Agoda", extracted_price: 1200, link: "..." }
+      if (Array.isArray(item.prices)) {
+        for (const p of item.prices) {
+          const providerName = p.source || p.provider || p.name || 'Unknown';
+          const priceValue =
+            p.extracted_price ||
+            p.extracted_lowest ||
+            parseFloat(
+              String(p.price || p.lowest || '').replace(/[^0-9.]/g, ''),
+            );
+          const link = p.link || p.url || item.link || '';
+
+          if (providerName && !isNaN(priceValue)) {
+            addPrice(providerName, priceValue, link);
+          }
         }
       }
 
-      if (item.booking_offers && Array.isArray(item.booking_offers)) {
-        for (const offer of item.booking_offers.slice(0, 3)) {
+      // 2. Extract from nested hotels.place_results.prices
+      if (item.hotels?.place_results?.prices) {
+        for (const p of item.hotels.place_results.prices) {
+          const providerName = p.source || p.provider || p.name || 'Unknown';
+          const priceValue =
+            p.extracted_price ||
+            p.extracted_lowest ||
+            parseFloat(
+              String(p.price || p.lowest || '').replace(/[^0-9.]/g, ''),
+            );
+          const link = p.link || p.url || item.link || '';
+
+          if (providerName && !isNaN(priceValue)) {
+            addPrice(providerName, priceValue, link);
+          }
+        }
+      }
+
+      // 3. Extract from providers array (alternative structure)
+      if (Array.isArray(item.providers)) {
+        for (const p of item.providers) {
+          const providerName = p.name || p.source || 'Unknown';
+          const priceValue =
+            p.extracted_price ||
+            p.price ||
+            parseFloat(String(p.rate || '').replace(/[^0-9.]/g, ''));
+          const link = p.link || p.url || item.link || '';
+
+          if (providerName && !isNaN(priceValue)) {
+            addPrice(providerName, priceValue, link);
+          }
+        }
+      }
+
+      // 4. Fallback to Google's own price (rate_per_night)
+      if (prices.length === 0) {
+        const ratePerNight = item.rate_per_night?.extracted_lowest;
+        if (ratePerNight && !isNaN(ratePerNight)) {
+          addPrice('Google Hotels', ratePerNight, item.link || '');
+        } else if (item.rate_per_night?.lowest) {
           const priceValue = parseFloat(
-            String(offer.price || offer.rate_per_night || '0').replace(
-              /[^0-9.]/g,
-              '',
-            ),
+            String(item.rate_per_night.lowest).replace(/[^0-9.]/g, ''),
           );
           if (!isNaN(priceValue)) {
-            prices.push({
-              provider: offer.provider || 'Booking',
-              price: priceValue,
-              link: offer.link || item.link || '',
-            });
+            addPrice('Google Hotels', priceValue, item.link || '');
+          }
+        }
+
+        // total_rate for multi-night stays
+        const totalRate = item.total_rate?.extracted_lowest;
+        if (totalRate && !isNaN(totalRate)) {
+          addPrice('Google Hotels (total)', totalRate, item.link || '');
+        } else if (item.total_rate?.lowest) {
+          const totalRateValue = parseFloat(
+            String(item.total_rate.lowest).replace(/[^0-9.]/g, ''),
+          );
+          if (!isNaN(totalRateValue)) {
+            addPrice('Google Hotels (total)', totalRateValue, item.link || '');
           }
         }
       }

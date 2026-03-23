@@ -40,6 +40,18 @@ export class User {
   @Column('varchar', { array: true, default: '{}' })
   preferredRegions: string[];
 
+  // Agent-learned preferences from conversations
+  @Column({ type: 'jsonb', name: 'agent_preferences', nullable: true })
+  agentPreferences: {
+    travelStyle?: string[];
+    dietaryRestrictions?: string[];
+    interests?: string[];
+    groupComposition?: string;
+    budgetRange?: { min?: number; max?: number };
+    accommodationPrefs?: string[];
+    lastUpdated?: string;
+  } | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

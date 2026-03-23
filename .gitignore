@@ -48,3 +48,5 @@ AGENTS.md
 .ruff_cache
 
 CLAUDE.md
+
+eval/node_modules

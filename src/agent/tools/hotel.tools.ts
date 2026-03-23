@@ -4,6 +4,7 @@ import {
   HotelsScraperService,
   ScrapedHotel,
 } from '../../hotels/hotels-scraper.service';
+import { cachedSearch, hashString } from '../utils/redis-cache';
 
 interface SearchHotelsInput {
   location: string;
@@ -12,6 +13,8 @@ interface SearchHotelsInput {
   adults?: number;
   currency?: string;
   maxResults?: number;
+  amenities?: string[];
+  maxPrice?: number;
 }
 
 interface MappedHotel {
@@ -29,6 +32,16 @@ interface MappedHotel {
   prices: { provider: string; price: number; link: string }[];
   imageUrls: string[];
   amenities: string[];
+}
+
+function stripQueryParams(url: string): string {
+  if (!url) return '';
+  try {
+    const idx = url.indexOf('?');
+    return idx > 0 ? url.substring(0, idx) : url;
+  } catch {
+    return url;
+  }
 }
 
 export function createHotelTools(hotelsScraperService: HotelsScraperService) {
@@ -68,44 +81,74 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
         .optional()
         .default(10)
         .describe('Maximum number of hotels to return (default 10)'),
+      amenities: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Filter by amenities. Supported values: "Free Wi-Fi", "Free breakfast", "Pool", "Free parking", "Air conditioning", "Fitness center", "Hot tub"',
+        ),
+      maxPrice: z
+        .number()
+        .optional()
+        .describe(
+          'Maximum price per night in THB. Use when user specifies a budget.',
+        ),
     }),
     func: async (input: SearchHotelsInput) => {
+      const cacheKey = `hotels:${hashString(`${input.location}:${input.checkInDate ?? ''}:${input.checkOutDate ?? ''}:${input.maxPrice ?? ''}`)}`;
+      const TTL_HOTEL = 6 * 60 * 60; // 6 hours
+
       try {
-        const hotels = await hotelsScraperService.searchHotels({
-          location: input.location,
-          checkInDate: input.checkInDate,
-          checkOutDate: input.checkOutDate,
-          adults: input.adults ?? 2,
-          currency: input.currency ?? 'THB',
-          maxResults: input.maxResults ?? 10,
-        });
+        return await cachedSearch(cacheKey, TTL_HOTEL, async () => {
+          const hotels = await hotelsScraperService.searchHotels({
+            location: input.location,
+            checkInDate: input.checkInDate,
+            checkOutDate: input.checkOutDate,
+            adults: input.adults ?? 2,
+            currency: input.currency ?? 'THB',
+            maxResults: input.maxResults ?? 10,
+            amenities: input.amenities,
+            maxPrice: input.maxPrice,
+          });
 
-        const mapped: MappedHotel[] = hotels.map(
-          (hotel: ScrapedHotel, index: number) => ({
-            id: index,
-            name: hotel.name,
-            address: hotel.address || '',
-            latitude: hotel.latitude,
-            longitude: hotel.longitude,
-            rating: hotel.rating,
-            reviewCount: hotel.reviewCount,
-            priceRange: hotel.priceRange || '',
-            thumbnail: hotel.thumbnail || '',
-            website: hotel.website || '',
-            bookingUrl: hotel.bookingUrl || '',
-            prices: (hotel.prices || []).slice(0, 3).map((p) => ({
-              provider: p.provider,
-              price: p.price,
-              link: p.link || hotel.bookingUrl || '',
-            })),
-            imageUrls: (hotel.imageUrls || []).slice(0, 3),
-            amenities: (hotel.amenities || []).slice(0, 10),
-          }),
-        );
+          let mapped: MappedHotel[] = hotels.map(
+            (hotel: ScrapedHotel, index: number) => ({
+              id: index,
+              name: hotel.name,
+              address: hotel.address || '',
+              latitude: hotel.latitude,
+              longitude: hotel.longitude,
+              rating: hotel.rating,
+              reviewCount: hotel.reviewCount,
+              priceRange: hotel.priceRange || '',
+              thumbnail: hotel.thumbnail || '',
+              website: stripQueryParams(hotel.website || ''),
+              bookingUrl: stripQueryParams(hotel.bookingUrl || ''),
+              prices: (hotel.prices || []).slice(0, 3).map((p) => ({
+                provider: p.provider,
+                price: p.price,
+                link: stripQueryParams(p.link || hotel.bookingUrl || ''),
+              })),
+              imageUrls: (hotel.imageUrls || []).slice(0, 3),
+              amenities: (hotel.amenities || []).slice(0, 10),
+            }),
+          );
 
-        return JSON.stringify({
-          hotels: mapped,
-          count: mapped.length,
+          // Post-filter by maxPrice as a safety net
+          if (input.maxPrice) {
+            mapped = mapped.filter((hotel) => {
+              const priceMatch = hotel.priceRange
+                .replace(/,/g, '')
+                .match(/(\d+)/);
+              const lowestPrice = priceMatch ? parseInt(priceMatch[1], 10) : 0;
+              return lowestPrice === 0 || lowestPrice <= input.maxPrice!;
+            });
+          }
+
+          return JSON.stringify({
+            hotels: mapped,
+            count: mapped.length,
+          });
         });
       } catch (err) {
         return JSON.stringify({

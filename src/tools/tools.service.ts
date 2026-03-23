@@ -15,7 +15,14 @@ import {
   RouteResponse,
   OsrmTripOptions,
   OsrmTripResponse,
+  TableRequestDto,
+  OsrmTableResponse,
+  DistanceMatrix,
 } from './dto/route.dto';
+import { hashString } from '../agent/utils/redis-cache';
+
+const OSRM_CACHE_TTL_SECONDS = 60 * 60; // 1 hour
+const OSRM_TIMEOUT_MS = 10000; // 10 second timeout for OSRM requests
 
 @Injectable()
 export class ToolsService {
@@ -105,10 +112,11 @@ export class ToolsService {
   async vectorSearch(
     query: string,
     limit = 10,
+    province?: string,
   ): Promise<
     (VectorSearchResult & { pg_place_id?: number; province_name?: string })[]
   > {
-    const results = await this.qdrantService.search(query, { limit });
+    const results = await this.qdrantService.search(query, { limit, province });
 
     // Debug: log unique source_collection values
     const uniqueCollections = [
@@ -213,46 +221,69 @@ export class ToolsService {
       throw new Error('At least 2 waypoints are required');
     }
 
-    // Build OSRM coordinates string: lng,lat;lng,lat;...
+    const roundCoord = (n: number): number => Math.round(n * 10000) / 10000;
+
     const coords = dto.waypoints
-      .map((wp) => `${wp.longitude},${wp.latitude}`)
+      .map((wp) => `${roundCoord(wp.longitude)},${roundCoord(wp.latitude)}`)
       .join(';');
 
-    const url =
-      `https://router.project-osrm.org/route/v1/driving/${coords}` +
-      `?overview=simplified&geometries=geojson&steps=false`;
+    const cacheKey = `osrm:route:${hashString(coords)}`;
 
-    const response = await fetch(url);
+    const fetchRoute = async (): Promise<RouteResponse> => {
+      const url =
+        `https://router.project-osrm.org/route/v1/driving/${coords}` +
+        `?overview=simplified&geometries=geojson&steps=false`;
 
-    if (!response.ok) {
-      throw new Error(`OSRM request failed: ${response.status}`);
-    }
+      let response;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
+        response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+      } catch (err) {
+        this.logger.warn(
+          `OSRM fetch timeout/error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
 
-    const data = (await response.json()) as {
-      code: string;
-      routes: {
-        distance: number;
-        duration: number;
-        geometry: { type: string; coordinates: [number, number][] };
-        legs: { distance: number; duration: number }[];
-      }[];
+      if (!response.ok) {
+        throw new Error(`OSRM request failed: ${response.status}`);
+      }
+
+      const data = (await response.json()) as {
+        code: string;
+        routes: {
+          distance: number;
+          duration: number;
+          geometry: { type: string; coordinates: [number, number][] };
+          legs: { distance: number; duration: number }[];
+        }[];
+      };
+
+      if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+        throw new Error(`OSRM returned no routes: ${data.code}`);
+      }
+
+      const route = data.routes[0];
+
+      return {
+        distance_km: Math.round((route.distance / 1000) * 100) / 100,
+        duration_minutes: Math.round(route.duration / 60),
+        geometry: route.geometry,
+        legs: route.legs.map((leg) => ({
+          distance_km: Math.round((leg.distance / 1000) * 100) / 100,
+          duration_minutes: Math.round(leg.duration / 60),
+        })),
+      };
     };
 
-    if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
-      throw new Error(`OSRM returned no routes: ${data.code}`);
+    try {
+      const { cachedSearch } = await import('../agent/utils/redis-cache.js');
+      return await cachedSearch(cacheKey, OSRM_CACHE_TTL_SECONDS, fetchRoute);
+    } catch {
+      return fetchRoute();
     }
-
-    const route = data.routes[0];
-
-    return {
-      distance_km: Math.round((route.distance / 1000) * 100) / 100,
-      duration_minutes: Math.round(route.duration / 60),
-      geometry: route.geometry,
-      legs: route.legs.map((leg) => ({
-        distance_km: Math.round((leg.distance / 1000) * 100) / 100,
-        duration_minutes: Math.round(leg.duration / 60),
-      })),
-    };
   }
 
   // ==================== Trip Optimization (OSRM Trip API / TSP) ====================
@@ -265,8 +296,10 @@ export class ToolsService {
       throw new Error('At least 2 waypoints are required');
     }
 
+    const roundCoord = (n: number): number => Math.round(n * 10000) / 10000;
+
     const coords = dto.waypoints
-      .map((wp) => `${wp.longitude},${wp.latitude}`)
+      .map((wp) => `${roundCoord(wp.longitude)},${roundCoord(wp.latitude)}`)
       .join(';');
 
     const params = new URLSearchParams({
@@ -279,52 +312,133 @@ export class ToolsService {
       params.set('destination', options.destination);
     }
 
-    const url = `https://router.project-osrm.org/trip/v1/driving/${coords}?${params.toString()}`;
+    const cacheKey = `osrm:trip:${hashString(coords + '?' + params.toString())}`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const fetchTrip = async (): Promise<OsrmTripResponse> => {
+      const url = `https://router.project-osrm.org/trip/v1/driving/${coords}?${params.toString()}`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+
+        if (!response.ok) {
+          throw new Error(`OSRM Trip request failed: ${response.status}`);
+        }
+
+        const data = (await response.json()) as {
+          code: string;
+          trips: {
+            distance: number;
+            duration: number;
+            geometry: { type: string; coordinates: [number, number][] };
+            legs: { distance: number; duration: number }[];
+          }[];
+          waypoints: {
+            waypoint_index: number;
+            location: [number, number];
+            name: string;
+            distance: number;
+          }[];
+        };
+
+        if (data.code !== 'Ok' || !data.trips || data.trips.length === 0) {
+          throw new Error(`OSRM Trip returned no trips: ${data.code}`);
+        }
+
+        const trip = data.trips[0];
+
+        return {
+          distance_km: Math.round((trip.distance / 1000) * 100) / 100,
+          duration_minutes: Math.round(trip.duration / 60),
+          geometry: trip.geometry,
+          legs: trip.legs.map((leg) => ({
+            distance_km: Math.round((leg.distance / 1000) * 100) / 100,
+            duration_minutes: Math.round(leg.duration / 60),
+          })),
+          waypoints: data.waypoints,
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
 
     try {
-      const response = await fetch(url, { signal: controller.signal });
+      const { cachedSearch } = await import('../agent/utils/redis-cache.js');
+      return await cachedSearch(cacheKey, OSRM_CACHE_TTL_SECONDS, fetchTrip);
+    } catch (err) {
+      this.logger.warn(
+        `OSRM Trip fetch timeout/error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return fetchTrip();
+    }
+  }
 
-      if (!response.ok) {
-        throw new Error(`OSRM Trip request failed: ${response.status}`);
+  // ==================== Distance Matrix (OSRM Table API) ====================
+
+  async getDistanceMatrix(dto: TableRequestDto): Promise<DistanceMatrix> {
+    if (dto.waypoints.length < 2) {
+      throw new Error('At least 2 waypoints are required');
+    }
+
+    const roundCoord = (n: number): number => Math.round(n * 10000) / 10000;
+
+    const coords = dto.waypoints
+      .map((wp) => `${roundCoord(wp.longitude)},${roundCoord(wp.latitude)}`)
+      .join(';');
+
+    const cacheKey = `osrm:table:${hashString(coords)}`;
+
+    const fetchTable = async (): Promise<DistanceMatrix> => {
+      const url =
+        `https://router.project-osrm.org/table/v1/driving/${coords}` +
+        `?annotations=duration,distance`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+
+        if (!response.ok) {
+          throw new Error(`OSRM Table request failed: ${response.status}`);
+        }
+
+        const data = (await response.json()) as OsrmTableResponse;
+
+        if (!data.distances || !data.durations) {
+          throw new Error('OSRM Table returned incomplete data');
+        }
+
+        const numPoints = dto.waypoints.length;
+        const distances: number[][] = [];
+        const durations: number[][] = [];
+
+        for (let i = 0; i < numPoints; i++) {
+          distances[i] = [];
+          durations[i] = [];
+          for (let j = 0; j < numPoints; j++) {
+            distances[i][j] =
+              Math.round((data.distances[i][j] / 1000) * 100) / 100;
+            durations[i][j] = Math.round(data.durations[i][j] / 60);
+          }
+        }
+
+        return { distances, durations };
+      } finally {
+        clearTimeout(timeout);
       }
+    };
 
-      const data = (await response.json()) as {
-        code: string;
-        trips: {
-          distance: number;
-          duration: number;
-          geometry: { type: string; coordinates: [number, number][] };
-          legs: { distance: number; duration: number }[];
-        }[];
-        waypoints: {
-          waypoint_index: number;
-          location: [number, number];
-          name: string;
-          distance: number;
-        }[];
-      };
-
-      if (data.code !== 'Ok' || !data.trips || data.trips.length === 0) {
-        throw new Error(`OSRM Trip returned no trips: ${data.code}`);
-      }
-
-      const trip = data.trips[0];
-
-      return {
-        distance_km: Math.round((trip.distance / 1000) * 100) / 100,
-        duration_minutes: Math.round(trip.duration / 60),
-        geometry: trip.geometry,
-        legs: trip.legs.map((leg) => ({
-          distance_km: Math.round((leg.distance / 1000) * 100) / 100,
-          duration_minutes: Math.round(leg.duration / 60),
-        })),
-        waypoints: data.waypoints,
-      };
-    } finally {
-      clearTimeout(timeout);
+    try {
+      const { cachedSearch } = await import('../agent/utils/redis-cache.js');
+      return await cachedSearch(cacheKey, OSRM_CACHE_TTL_SECONDS, fetchTable);
+    } catch (err) {
+      this.logger.warn(
+        `OSRM Table fetch timeout/error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return fetchTable();
     }
   }
 

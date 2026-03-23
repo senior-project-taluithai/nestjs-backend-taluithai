@@ -22,11 +22,18 @@ export function createSearchTools(toolsService: ToolsService) {
     description:
       'Semantic search for places in Thailand using natural language. ' +
       'Use this to find places matching a description like "ancient temple with river view" or "beach resort Krabi". ' +
-      'Returns places with title, address, rating, lat/lng, category, and pg_place_id.',
+      'Returns places with title, address, rating, lat/lng, category, and pg_place_id. ' +
+      'Optionally filter by province to get more relevant results.',
     schema: z.object({
       query: z
         .string()
         .describe('Natural language search query (Thai or English)'),
+      province: z
+        .string()
+        .optional()
+        .describe(
+          'Province name to filter results (e.g., "Krabi", "Phuket", "Chiang Mai")',
+        ),
       limit: z
         .number()
         .optional()
@@ -34,10 +41,14 @@ export function createSearchTools(toolsService: ToolsService) {
         .describe('Max results (default 10)'),
     }),
     func: async (input: any) => {
-      const { query, limit } = input;
-      const cacheKey = `search:semantic:${hashString(`${query}:${limit ?? 10}`)}`;
+      const { query, province, limit } = input;
+      const cacheKey = `search:semantic:${hashString(`${query}:${province ?? ''}:${limit ?? 10}`)}`;
       return cachedSearch(cacheKey, TTL_SECONDS.semantic, async () => {
-        const results = await toolsService.vectorSearch(query, limit ?? 10);
+        const results = await toolsService.vectorSearch(
+          query,
+          limit ?? 10,
+          province,
+        );
         const mapped = results.slice(0, limit ?? 10).map((r: any) => ({
           pg_place_id: r.pg_place_id,
           title: r.title,
@@ -98,17 +109,30 @@ export function createSearchTools(toolsService: ToolsService) {
     name: 'searchEvents',
     description:
       'Search for festivals, events, and cultural activities in Thailand. ' +
-      'Can filter by province name. Returns event name, dates, province, and description.',
+      'Can filter by province name and date range. Returns event name, dates, location, coordinates, and description.',
     schema: z.object({
       query: z.string().optional().describe('Event search query'),
       province: z.string().optional().describe('Province name to filter'),
-      limit: z.number().optional().default(10).describe('Max results'),
+      startDate: z
+        .string()
+        .optional()
+        .describe(
+          'Start date (YYYY-MM-DD) to filter events within a date range',
+        ),
+      endDate: z
+        .string()
+        .optional()
+        .describe('End date (YYYY-MM-DD) to filter events within a date range'),
+      limit: z.number().optional().default(5).describe('Max results'),
     }),
     func: async (input: any) => {
-      const { query, limit } = input;
+      const { query, province, startDate, endDate, limit } = input;
+      const searchTerm = [query, province].filter(Boolean).join(' ');
       const results = await toolsService.searchEvents({
-        query,
-        limit: limit ?? 10,
+        query: searchTerm || undefined,
+        startDate,
+        endDate,
+        limit: limit ?? 5,
       });
       return JSON.stringify(results);
     },

@@ -55,3 +55,28 @@ export interface OsrmTripResponse {
   }[];
   waypoints: OsrmTripWaypoint[];
 }
+
+export class TableRequestDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CoordinateDto)
+  waypoints: CoordinateDto[];
+
+  @IsArray()
+  sources?: number[];
+
+  @IsArray()
+  destinations?: number[];
+}
+
+export interface OsrmTableResponse {
+  distances: number[][]; // in meters
+  durations: number[][]; // in seconds
+  sources?: { location: [number, number]; name: string }[];
+  destinations?: { location: [number, number]; name: string }[];
+}
+
+export interface DistanceMatrix {
+  distances: number[][]; // in km
+  durations: number[][]; // in minutes
+}

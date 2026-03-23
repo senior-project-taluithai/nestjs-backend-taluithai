@@ -72,6 +72,24 @@ export class RoutePlannerHotelDto {
   price_range?: string;
 }
 
+export class HotelOverrideDto {
+  @IsInt()
+  @ApiProperty({ example: 1, description: '1-based night number' })
+  night: number;
+
+  @IsString()
+  @ApiProperty({ example: 'Rua Rasada Hotel' })
+  hotel_name: string;
+
+  @IsNumber()
+  @ApiProperty({ example: 7.5652702 })
+  latitude: number;
+
+  @IsNumber()
+  @ApiProperty({ example: 99.6304955 })
+  longitude: number;
+}
+
 export class RoutePlannerRequestDto {
   @ValidateNested()
   @Type(() => UserLocationDto)
@@ -101,6 +119,30 @@ export class RoutePlannerRequestDto {
   @Type(() => RoutePlannerHotelDto)
   @ApiProperty({ type: [RoutePlannerHotelDto] })
   shortlisted_hotels: RoutePlannerHotelDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => HotelOverrideDto)
+  @ApiProperty({
+    type: [HotelOverrideDto],
+    required: false,
+    description:
+      'Per-night hotel overrides. When provided, uses these instead of auto-assignment.',
+  })
+  hotel_overrides?: HotelOverrideDto[];
+}
+
+export class UpdateHotelAssignmentsDto {
+  @IsArray()
+  @ApiProperty({
+    description:
+      'Hotel assignments for each night. Array of { night: number, hotel_name: string, latitude: number, longitude: number }',
+    type: [HotelOverrideDto],
+  })
+  @ValidateNested({ each: true })
+  @Type(() => HotelOverrideDto)
+  hotel_overrides: HotelOverrideDto[];
 }
 
 // ==================== Output Interfaces ====================
@@ -139,6 +181,24 @@ export interface RoutePlannerSummary {
 }
 
 export interface RoutePlannerResponseDto {
+  planId?: number;
   itinerary: ItineraryDay[];
   summary: RoutePlannerSummary;
+}
+
+export interface RoutePlanResponseDto {
+  id: number;
+  destinationProvince: string;
+  numDays: number;
+  dayGeometries: {
+    day: number;
+    geometry: GeoJSON.LineString;
+  }[];
+  routeData: {
+    itinerary: Omit<ItineraryDay, 'geometry'>[];
+    summary: RoutePlannerSummary;
+  };
+  totalDistanceKm: number;
+  totalDurationMins: number;
+  createdAt: Date;
 }

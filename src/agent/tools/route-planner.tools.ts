@@ -12,7 +12,7 @@ export function createRoutePlannerTools(
       'using geographic clustering, optimizes visit order per day using OSRM TSP, ' +
       'and matches the closest hotel for each night. Returns per-day routes with ' +
       'distance/duration totals. Use after trip_planner has ' +
-      'selected places and user has chosen hotels.',
+      'selected places and hotel_agent has found hotels.',
     schema: z.object({
       user_location: z.object({
         latitude: z.number().describe('User latitude'),

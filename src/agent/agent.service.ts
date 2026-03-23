@@ -23,10 +23,16 @@ import {
   stripDistantItems,
   fixThumbnailsInResponse,
 } from './graph';
-import { HumanMessage, BaseMessage } from '@langchain/core/messages';
+import {
+  HumanMessage,
+  AIMessage,
+  SystemMessage,
+  BaseMessage,
+} from '@langchain/core/messages';
 import { randomUUID } from 'crypto';
 import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
-import { truncateMessagesIfNeeded } from './utils/context-manager';
+import { compactMessagesIfNeeded } from './utils/context-manager';
+import { TripJson, BudgetJson, HotelJson } from './state';
 
 // Phase 1.2: Lower recursion limits to prevent runaway loops
 const DEFAULT_RECURSION_LIMIT = 25;
@@ -39,7 +45,12 @@ export interface ThreadInfo {
   updated_at: string;
   metadata: Record<string, unknown>;
   status: string;
-  values: Record<string, unknown>;
+  values: Record<string, unknown> & {
+    messages?: unknown[];
+    currentTrip?: TripJson | null;
+    currentBudget?: BudgetJson | null;
+    currentHotels?: HotelJson | null;
+  };
 }
 
 @Injectable()
@@ -90,6 +101,7 @@ export class AgentService implements OnModuleInit {
       undefined,
       undefined,
       this.checkpointer,
+      this.routePlannerService,
     );
     this.logger.log(
       `Travel agent graph compiled successfully (LangSmith tracing: ${process.env.LANGCHAIN_TRACING_V2 === 'true' && !!process.env.LANGSMITH_API_KEY ? 'ON' : 'OFF'})`,
@@ -109,7 +121,7 @@ export class AgentService implements OnModuleInit {
       updated_at: now,
       metadata: userId ? { userId } : {},
       status: 'idle',
-      values: {},
+      values: { messages: [] },
     };
     this.threads.set(threadId, thread);
     this.logger.log(
@@ -210,7 +222,7 @@ export class AgentService implements OnModuleInit {
         updated_at: now,
         metadata: {},
         status: 'idle',
-        values: {},
+        values: { messages: [] },
       });
     } else {
       const thread = this.threads.get(threadId)!;
@@ -227,23 +239,85 @@ export class AgentService implements OnModuleInit {
     const lastMsg = rawMessages[rawMessages.length - 1];
     const lastContent =
       typeof lastMsg === 'string' ? lastMsg : lastMsg?.content || '';
-    const messages = lastContent ? [new HumanMessage(lastContent)] : [];
+    let messages: BaseMessage[] = lastContent
+      ? [new HumanMessage(lastContent)]
+      : [];
 
     const runId = randomUUID();
 
     // Emit metadata event
     yield this.formatSSE('metadata', { run_id: runId });
 
-    // Phase 5.2: Truncate messages if conversation is long
-    const truncationResult = truncateMessagesIfNeeded(
-      messages as BaseMessage[],
-    );
-    if (truncationResult.wasTruncated) {
+    // Fallback: if Redis checkpoint expired, reload history from PostgreSQL
+    // so the agent remembers past conversations.
+    let recoveredState: {
+      currentTrip?: Record<string, unknown> | null;
+      currentBudget?: Record<string, unknown> | null;
+      currentHotels?: Record<string, unknown> | null;
+    } | null = null;
+
+    if (this.checkpointer && conversationId && userId) {
+      try {
+        const existing = await this.checkpointer.getTuple({
+          configurable: { thread_id: threadId },
+        });
+        if (!existing) {
+          this.logger.log(
+            `[streamRun] No Redis checkpoint for thread ${threadId}, loading history from PostgreSQL`,
+          );
+          const { data: dbMessages } = await this.chatService.getMessages(
+            conversationId,
+            userId,
+            { limit: 30 },
+          );
+          if (dbMessages.length > 0) {
+            const historyMessages: BaseMessage[] = dbMessages.map((m) => {
+              if (m.role === 'assistant') return new AIMessage(m.content || '');
+              if (m.role === 'system')
+                return new SystemMessage(m.content || '');
+              return new HumanMessage(m.content || '');
+            });
+            // Append the new user message after history
+            messages = [...historyMessages, ...messages];
+            this.logger.log(
+              `[streamRun] Loaded ${dbMessages.length} messages from PostgreSQL as history`,
+            );
+          }
+
+          // Phase 2.1: Load structured state from PostgreSQL
+          try {
+            recoveredState = await this.chatService.getAgentState(
+              conversationId,
+              userId,
+            );
+            if (recoveredState) {
+              this.logger.log(
+                '[streamRun] Recovered structured state from PostgreSQL',
+              );
+            }
+          } catch (e) {
+            this.logger.warn(
+              `[streamRun] State recovery failed: ${(e as Error).message}`,
+            );
+          }
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[streamRun] PostgreSQL history fallback failed: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    // Phase 3: Compact messages if conversation is long, preserving context
+    const compactionResult = compactMessagesIfNeeded(messages, {
+      hasPersistedState: !!recoveredState?.currentTrip,
+    });
+    if (compactionResult.wasCompacted) {
       this.logger.log(
-        `[streamRun] Truncated ${truncationResult.removedCount} messages (est. ${truncationResult.estimatedTokens} tokens)`,
+        `[streamRun] Compacted ${compactionResult.removedCount} messages (est. ${compactionResult.estimatedTokens} tokens)`,
       );
     }
-    const truncatedMessages = truncationResult.messages;
+    const truncatedMessages = compactionResult.messages;
 
     let lastState: Record<string, unknown> = {};
     const streamConfig = { ...(config ?? {}) };
@@ -257,14 +331,47 @@ export class AgentService implements OnModuleInit {
     delete streamConfig.recursionLimit;
 
     try {
-      const eventStream = this.graph.streamEvents(
-        { messages: truncatedMessages },
-        {
-          version: 'v2',
-          recursionLimit,
-          configurable: { thread_id: threadId, ...streamConfig },
-        },
-      );
+      // Debug: Check existing state from checkpointer before running
+      let existingState: Record<string, unknown> | null = null;
+      try {
+        const existingSnapshot = await this.graph.getState({
+          configurable: { thread_id: threadId },
+        });
+        if (existingSnapshot?.values) {
+          existingState = existingSnapshot.values as Record<string, unknown>;
+          this.logger.log(
+            `[streamRun] Existing state loaded - hasTrip: ${!!existingState.currentTrip}, hasBudget: ${!!existingState.currentBudget}`,
+          );
+        } else {
+          this.logger.log(
+            '[streamRun] No existing state found in checkpointer',
+          );
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[streamRun] Could not load existing state: ${(e as Error).message}`,
+        );
+      }
+
+      // Phase 2.2: Build graph input with recovered state
+      const graphInput: Record<string, unknown> = {
+        messages: truncatedMessages,
+      };
+      if (recoveredState?.currentTrip) {
+        graphInput.currentTrip = recoveredState.currentTrip;
+      }
+      if (recoveredState?.currentBudget) {
+        graphInput.currentBudget = recoveredState.currentBudget;
+      }
+      if (recoveredState?.currentHotels) {
+        graphInput.currentHotels = recoveredState.currentHotels;
+      }
+
+      const eventStream = this.graph.streamEvents(graphInput, {
+        version: 'v2',
+        recursionLimit,
+        configurable: { thread_id: threadId, ...streamConfig },
+      });
 
       for await (const event of eventStream) {
         yield this.formatEventSSE(event);
@@ -277,8 +384,41 @@ export class AgentService implements OnModuleInit {
         }
       }
 
+      // Fallback: if on_chain_end didn't capture state, retrieve from checkpointer
+      if (
+        !lastState.messages ||
+        !Array.isArray(lastState.messages) ||
+        lastState.messages.length === 0
+      ) {
+        try {
+          const finalSnapshot = await this.graph.getState({
+            configurable: { thread_id: threadId },
+          });
+          if (
+            finalSnapshot?.values &&
+            Array.isArray(
+              (finalSnapshot.values as Record<string, unknown>).messages,
+            )
+          ) {
+            lastState = finalSnapshot.values as Record<string, unknown>;
+            this.logger.log(
+              '[streamRun] Used checkpointer fallback for state capture',
+            );
+          }
+        } catch (e) {
+          this.logger.warn(
+            `[streamRun] Fallback state capture failed: ${(e as Error).message}`,
+          );
+        }
+      }
+
       // Phase 3: Post-processing validation pipeline
       lastState = await this.postProcessState(lastState);
+
+      // Debug: Log persisted state
+      this.logger.log(
+        `[streamRun] Final state - hasTrip: ${!!lastState.currentTrip}, hasBudget: ${!!lastState.currentBudget}, hasHotels: ${!!lastState.currentHotels}`,
+      );
 
       // Emit final values with messages converted to simple format
       const convertedState = this.convertStateMessages(lastState);
@@ -376,12 +516,80 @@ export class AgentService implements OnModuleInit {
         const convertedMessages = messages.map((msg) =>
           this.convertMessage(msg),
         );
-        await this.chatService.saveAIResponseFromThread(
-          conversationId,
-          userId,
-          convertedMessages,
+
+        // Consolidate all AI messages from this run into a single message
+        // to prevent multiple bubbles when the conversation is reloaded.
+        const aiMessages = convertedMessages.filter(
+          (m) => m.type === 'ai' || m.type === 'assistant',
         );
+        const nonAiMessages = convertedMessages.filter(
+          (m) => m.type !== 'ai' && m.type !== 'assistant',
+        );
+
+        if (aiMessages.length > 1) {
+          const combinedContent = aiMessages
+            .map((m) =>
+              typeof m.content === 'string'
+                ? m.content
+                : JSON.stringify(m.content),
+            )
+            .filter((c) => c && c.trim())
+            .join('\n\n');
+
+          const consolidatedAi = {
+            ...aiMessages[aiMessages.length - 1],
+            content: combinedContent,
+          };
+
+          const consolidatedMessages = [...nonAiMessages, consolidatedAi];
+          this.logger.debug(
+            `Consolidated ${aiMessages.length} AI messages into 1`,
+          );
+          await this.chatService.saveAIResponseFromThread(
+            conversationId,
+            userId,
+            consolidatedMessages,
+          );
+        } else {
+          await this.chatService.saveAIResponseFromThread(
+            conversationId,
+            userId,
+            convertedMessages,
+          );
+        }
+
         this.logger.log(`Saved AI messages to conversation ${conversationId}`);
+
+        // Phase 1.3: Persist structured state to PostgreSQL
+        if (
+          lastState.currentTrip ||
+          lastState.currentBudget ||
+          lastState.currentHotels
+        ) {
+          try {
+            await this.chatService.saveAgentState(conversationId, userId, {
+              currentTrip: lastState.currentTrip as Record<
+                string,
+                unknown
+              > | null,
+              currentBudget: lastState.currentBudget as Record<
+                string,
+                unknown
+              > | null,
+              currentHotels: lastState.currentHotels as Record<
+                string,
+                unknown
+              > | null,
+            });
+            this.logger.log(
+              `[streamRun] Persisted agent state to PostgreSQL for conversation ${conversationId}`,
+            );
+          } catch (e) {
+            this.logger.warn(
+              `[streamRun] Failed to persist agent state: ${(e as Error).message}`,
+            );
+          }
+        }
       } catch (error) {
         this.logger.error(
           `Failed to save AI response to DB: ${(error as Error).message}`,

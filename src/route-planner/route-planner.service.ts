@@ -1,6 +1,8 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ToolsService } from '../tools/tools.service';
 import { ProvincesService } from '../provinces/provinces.service';
+import { RoutePlansService } from './route-plans.service';
+import { RouteSegmentsRepository } from './route-segments.repository';
 import { haversineKm } from './utils/haversine';
 import { kMeans, Cluster } from './utils/kmeans';
 import { getTransitHub } from './utils/thai-transit-hubs';
@@ -8,6 +10,7 @@ import {
   RoutePlannerRequestDto,
   RoutePlannerPlaceDto,
   RoutePlannerHotelDto,
+  HotelOverrideDto,
   RoutePlannerResponseDto,
   ItineraryDay,
   RouteStop,
@@ -16,6 +19,7 @@ import {
 
 const NEARBY_THRESHOLD_KM = 100;
 const SAME_HOTEL_THRESHOLD_KM = 15;
+const COORD_PRECISION = 3;
 
 @Injectable()
 export class RoutePlannerService {
@@ -24,6 +28,8 @@ export class RoutePlannerService {
   constructor(
     private readonly toolsService: ToolsService,
     private readonly provincesService: ProvincesService,
+    private readonly routePlansService: RoutePlansService,
+    private readonly routeSegmentsRepository: RouteSegmentsRepository,
   ) {}
 
   async planRoute(
@@ -45,12 +51,28 @@ export class RoutePlannerService {
       startPoint,
       transitAdvice,
       request.shortlisted_hotels,
+      request.hotel_overrides,
     );
 
     // === Build Summary ===
     const summary = this.buildSummary(itinerary);
 
-    return { itinerary, summary };
+    // === Persist Route Plan ===
+    const savedPlan = await this.routePlansService.saveRoutePlan(
+      undefined,
+      undefined,
+      request,
+      {
+        itinerary,
+        summary,
+      },
+    );
+
+    return {
+      planId: savedPlan.id,
+      itinerary,
+      summary,
+    };
   }
 
   // ─── Step 2.1: Start Point Logic ────────────────────────────────
@@ -59,37 +81,59 @@ export class RoutePlannerService {
     startPoint: { name: string; latitude: number; longitude: number };
     transitAdvice: string | null;
   }> {
-    const province = await this.provincesService.findByNameEn(
+    const province = await this.provincesService.findByName(
       request.destination_province,
     );
 
-    if (!province) {
-      throw new NotFoundException(
-        `Province not found: ${request.destination_province}`,
+    if (province) {
+      const distToProvince = haversineKm(
+        request.user_location.latitude,
+        request.user_location.longitude,
+        province.latitude,
+        province.longitude,
       );
-    }
 
-    const distToProvince = haversineKm(
-      request.user_location.latitude,
-      request.user_location.longitude,
-      province.latitude,
-      province.longitude,
-    );
+      if (distToProvince < NEARBY_THRESHOLD_KM) {
+        return {
+          startPoint: {
+            name: 'Your Location',
+            latitude: request.user_location.latitude,
+            longitude: request.user_location.longitude,
+          },
+          transitAdvice: null,
+        };
+      }
 
-    if (distToProvince < NEARBY_THRESHOLD_KM) {
+      // Far away — use transit hub
+      const hub = getTransitHub(request.destination_province);
+      if (hub) {
+        return {
+          startPoint: {
+            name: hub.name,
+            latitude: hub.latitude,
+            longitude: hub.longitude,
+          },
+          transitAdvice: hub.advice,
+        };
+      }
+
+      // No known hub — use province center
       return {
         startPoint: {
-          name: 'Your Location',
-          latitude: request.user_location.latitude,
-          longitude: request.user_location.longitude,
+          name: `${request.destination_province} Center`,
+          latitude: province.latitude,
+          longitude: province.longitude,
         },
-        transitAdvice: null,
+        transitAdvice: `Travel to ${request.destination_province} by bus or plane`,
       };
     }
 
-    // Far away — use transit hub
-    const hub = getTransitHub(request.destination_province);
+    // Province not found in DB — fallback to transit hub or place centroid
+    this.logger.warn(
+      `Province "${request.destination_province}" not found in DB, using fallback`,
+    );
 
+    const hub = getTransitHub(request.destination_province);
     if (hub) {
       return {
         startPoint: {
@@ -101,12 +145,18 @@ export class RoutePlannerService {
       };
     }
 
-    // No known hub — use province center as fallback
+    // Last resort: use centroid of input places
+    const places = request.places;
+    const centroidLat =
+      places.reduce((sum, p) => sum + p.latitude, 0) / places.length;
+    const centroidLng =
+      places.reduce((sum, p) => sum + p.longitude, 0) / places.length;
+
     return {
       startPoint: {
-        name: `${request.destination_province} Center`,
-        latitude: province.latitude,
-        longitude: province.longitude,
+        name: `${request.destination_province} Area`,
+        latitude: centroidLat,
+        longitude: centroidLng,
       },
       transitAdvice: `Travel to ${request.destination_province} by bus or plane`,
     };
@@ -160,40 +210,51 @@ export class RoutePlannerService {
     startPoint: { name: string; latitude: number; longitude: number },
     transitAdvice: string | null,
     hotels: RoutePlannerHotelDto[],
+    hotelOverrides?: HotelOverrideDto[],
   ): Promise<ItineraryDay[]> {
-    const days: ItineraryDay[] = [];
+    // Phase A (sequential): optimize visit order + hotel matching per day
+    // (each day's start depends on previous day's hotel)
+    const dayPlans: Array<{
+      dayIdx: number;
+      optimizedPlaces: RoutePlannerPlaceDto[];
+      selectedHotel: RoutePlannerHotelDto | null;
+      currentStart: { name: string; latitude: number; longitude: number };
+      waypoints: { latitude: number; longitude: number }[];
+      route: RouteStop[];
+    }> = [];
+
     let currentStart = startPoint;
 
     for (let dayIdx = 0; dayIdx < orderedClusters.length; dayIdx++) {
       const cluster = orderedClusters[dayIdx];
       const isLastDay = dayIdx === orderedClusters.length - 1;
 
-      // Step 2.3: Optimize visit order via OSRM Trip API
       const optimizedPlaces = await this.optimizeVisitOrder(
         currentStart,
         cluster.members,
       );
 
-      // Step 2.4: Smart Hotel Matching (not on last day)
       const lastPlace =
         optimizedPlaces[optimizedPlaces.length - 1] ?? currentStart;
-      const prevHotel = dayIdx > 0 ? this.extractHotel(days[dayIdx - 1]) : null;
+      const prevHotel = dayIdx > 0 ? dayPlans[dayIdx - 1].selectedHotel : null;
 
+      const override = hotelOverrides?.find((o) => o.night === dayIdx + 1);
       const selectedHotel = isLastDay
         ? null
-        : this.matchHotel(lastPlace, hotels, prevHotel);
+        : override
+          ? {
+              name: override.hotel_name,
+              latitude: override.latitude,
+              longitude: override.longitude,
+            }
+          : this.matchHotel(lastPlace, hotels, prevHotel);
 
-      // Build full waypoint list for this day's route: start → places → hotel
-      const dayWaypoints = this.buildDayWaypoints(
+      const waypoints = this.buildDayWaypoints(
         currentStart,
         optimizedPlaces,
         selectedHotel,
       );
 
-      // Get final route geometry from OSRM Route API
-      const routeResult = await this.getDayRoute(dayWaypoints);
-
-      // Build route stops array
       const route: RouteStop[] = [
         {
           type: 'start',
@@ -223,13 +284,13 @@ export class RoutePlannerService {
         });
       }
 
-      days.push({
-        day: dayIdx + 1,
-        transit_advice: dayIdx === 0 ? transitAdvice : null,
+      dayPlans.push({
+        dayIdx,
+        optimizedPlaces,
+        selectedHotel,
+        currentStart,
+        waypoints,
         route,
-        daily_distance_km: routeResult?.distance_km ?? 0,
-        daily_duration_mins: routeResult?.duration_minutes ?? 0,
-        geometry: routeResult?.geometry ?? null,
       });
 
       // Next day starts from hotel (or last place if last day)
@@ -246,7 +307,20 @@ export class RoutePlannerService {
           };
     }
 
-    return days;
+    // Phase B (parallel): fetch all day route geometries concurrently
+    const routeResults = await Promise.all(
+      dayPlans.map((plan) => this.getDayRoute(plan.waypoints)),
+    );
+
+    // Assemble final itinerary
+    return dayPlans.map((plan, i) => ({
+      day: plan.dayIdx + 1,
+      transit_advice: plan.dayIdx === 0 ? transitAdvice : null,
+      route: plan.route,
+      daily_distance_km: routeResults[i]?.distance_km ?? 0,
+      daily_duration_mins: routeResults[i]?.duration_minutes ?? 0,
+      geometry: routeResults[i]?.geometry ?? null,
+    }));
   }
 
   private async optimizeVisitOrder(
@@ -391,6 +465,176 @@ export class RoutePlannerService {
     }
 
     return waypoints;
+  }
+
+  private roundCoord(n: number): number {
+    return (
+      Math.round(n * Math.pow(10, COORD_PRECISION)) /
+      Math.pow(10, COORD_PRECISION)
+    );
+  }
+
+  private getSegmentCacheKey(
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
+  ): string {
+    return `${this.roundCoord(from.latitude)},${this.roundCoord(from.longitude)}-${this.roundCoord(to.latitude)},${this.roundCoord(to.longitude)}`;
+  }
+
+  private async getCachedSegment(
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
+  ): Promise<{
+    geometry: GeoJSON.LineString;
+    distance_km: number;
+    duration_mins: number;
+  } | null> {
+    const fromLat = this.roundCoord(from.latitude);
+    const fromLng = this.roundCoord(from.longitude);
+    const toLat = this.roundCoord(to.latitude);
+    const toLng = this.roundCoord(to.longitude);
+
+    const redisKey = `route:segment:${fromLat},${fromLng}:${toLat},${toLng}`;
+
+    try {
+      const { cachedSearch } = await import('../agent/utils/redis-cache.js');
+      const cached = await cachedSearch(redisKey, 86400, async () => null);
+      if (cached) {
+        this.logger.debug(`Cache hit for segment ${redisKey}`);
+        return cached as {
+          geometry: GeoJSON.LineString;
+          distance_km: number;
+          duration_mins: number;
+        };
+      }
+    } catch {
+      // Redis not available, continue without cache
+    }
+    return null;
+  }
+
+  private async cacheSegment(
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
+    geometry: GeoJSON.LineString,
+    distance_km: number,
+    duration_mins: number,
+  ): Promise<void> {
+    const fromLat = this.roundCoord(from.latitude);
+    const fromLng = this.roundCoord(from.longitude);
+    const toLat = this.roundCoord(to.latitude);
+    const toLng = this.roundCoord(to.longitude);
+
+    const redisKey = `route:segment:${fromLat},${fromLng}:${toLat},${toLng}`;
+    const data = { geometry, distance_km, duration_mins };
+
+    try {
+      const { cachedSearch } = await import('../agent/utils/redis-cache.js');
+      await cachedSearch(redisKey, 86400, async () => data);
+      this.logger.debug(`Cached segment ${redisKey}`);
+    } catch {
+      // Redis not available, skip caching
+    }
+  }
+
+  private async buildSegmentsFromWaypoints(
+    waypoints: { latitude: number; longitude: number }[],
+    routeResult: {
+      geometry: GeoJSON.LineString;
+      distance_km: number;
+      duration_minutes: number;
+    },
+  ): Promise<void> {
+    if (waypoints.length < 2) return;
+
+    const coords = routeResult.geometry.coordinates as [number, number][];
+
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const from = waypoints[i];
+      const to = waypoints[i + 1];
+
+      const fromLat = this.roundCoord(from.latitude);
+      const fromLng = this.roundCoord(from.longitude);
+      const toLat = this.roundCoord(to.latitude);
+      const toLng = this.roundCoord(to.longitude);
+
+      const startCoord: [number, number] = [fromLng, fromLat];
+      const endCoord: [number, number] = [toLng, toLat];
+
+      const segmentCoords: [number, number][] = [];
+      let foundStart = false;
+
+      for (let j = 0; j < coords.length; j++) {
+        const coord = coords[j];
+
+        if (!foundStart) {
+          const dist = Math.sqrt(
+            Math.pow(coord[0] - startCoord[0], 2) +
+              Math.pow(coord[1] - startCoord[1], 2),
+          );
+          if (dist < 0.001) {
+            foundStart = true;
+            segmentCoords.push(coord);
+          }
+        } else {
+          segmentCoords.push(coord);
+          const distToEnd = Math.sqrt(
+            Math.pow(coord[0] - endCoord[0], 2) +
+              Math.pow(coord[1] - endCoord[1], 2),
+          );
+          if (distToEnd < 0.001) {
+            break;
+          }
+        }
+      }
+
+      if (segmentCoords.length >= 2) {
+        const segmentGeometry: GeoJSON.LineString = {
+          type: 'LineString',
+          coordinates: segmentCoords,
+        };
+
+        const segmentDistance = this.estimateSegmentDistance(
+          { lat: fromLat, lng: fromLng },
+          { lat: toLat, lng: toLng },
+        );
+
+        await this.cacheSegment(
+          from,
+          to,
+          segmentGeometry,
+          segmentDistance,
+          Math.round(segmentDistance / 50),
+        );
+      }
+    }
+  }
+
+  private estimateSegmentDistance(
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number },
+  ): number {
+    return haversineKm(from.lat, from.lng, to.lat, to.lng);
+  }
+
+  async getDayRouteWithCaching(
+    waypoints: { latitude: number; longitude: number }[],
+    planId?: number,
+    day?: number,
+  ) {
+    if (waypoints.length < 2) return null;
+
+    const routeResult = await this.toolsService.calculateRoute({ waypoints });
+
+    if (routeResult && routeResult.geometry) {
+      await this.buildSegmentsFromWaypoints(waypoints, {
+        geometry: routeResult.geometry as GeoJSON.LineString,
+        distance_km: routeResult.distance_km,
+        duration_minutes: routeResult.duration_minutes,
+      });
+    }
+
+    return routeResult;
   }
 
   private async getDayRoute(
