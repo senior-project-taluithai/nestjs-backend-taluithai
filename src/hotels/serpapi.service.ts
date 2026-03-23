@@ -239,47 +239,96 @@ export class SerpApiService {
     item: any,
   ): { provider: string; price: number; link: string }[] {
     const prices: { provider: string; price: number; link: string }[] = [];
+    const addedProviders = new Set<string>();
 
     try {
-      // SerpAPI returns rate_per_night as { lowest: "฿1,234", extracted_lowest: 1234 }
-      const ratePerNight = item.rate_per_night?.extracted_lowest;
-      if (ratePerNight && !isNaN(ratePerNight)) {
-        prices.push({
-          provider: 'Google Hotels',
-          price: ratePerNight,
-          link: item.link || '',
-        });
-      } else if (item.rate_per_night?.lowest) {
-        const priceValue = parseFloat(
-          String(item.rate_per_night.lowest).replace(/[^0-9.]/g, ''),
-        );
-        if (!isNaN(priceValue)) {
-          prices.push({
-            provider: 'Google Hotels',
-            price: priceValue,
-            link: item.link || '',
-          });
+      // Helper to add price if not duplicate
+      const addPrice = (provider: string, price: number, link: string) => {
+        const normalizedName = provider.trim().toLowerCase();
+        if (!addedProviders.has(normalizedName) && !isNaN(price) && price > 0) {
+          prices.push({ provider: provider.trim(), price, link });
+          addedProviders.add(normalizedName);
+        }
+      };
+
+      // 1. Extract from item.prices array (third-party providers)
+      // SerpAPI structure: { source: "Agoda", extracted_price: 1200, link: "..." }
+      if (Array.isArray(item.prices)) {
+        for (const p of item.prices) {
+          const providerName = p.source || p.provider || p.name || 'Unknown';
+          const priceValue =
+            p.extracted_price ||
+            p.extracted_lowest ||
+            parseFloat(
+              String(p.price || p.lowest || '').replace(/[^0-9.]/g, ''),
+            );
+          const link = p.link || p.url || item.link || '';
+
+          if (providerName && !isNaN(priceValue)) {
+            addPrice(providerName, priceValue, link);
+          }
         }
       }
 
-      // total_rate for multi-night stays
-      const totalRate = item.total_rate?.extracted_lowest;
-      if (totalRate && !isNaN(totalRate)) {
-        prices.push({
-          provider: 'Google Hotels',
-          price: totalRate,
-          link: item.link || '',
-        });
-      } else if (item.total_rate?.lowest) {
-        const totalRateValue = parseFloat(
-          String(item.total_rate.lowest).replace(/[^0-9.]/g, ''),
-        );
-        if (!isNaN(totalRateValue)) {
-          prices.push({
-            provider: 'Google Hotels',
-            price: totalRateValue,
-            link: item.link || '',
-          });
+      // 2. Extract from nested hotels.place_results.prices
+      if (item.hotels?.place_results?.prices) {
+        for (const p of item.hotels.place_results.prices) {
+          const providerName = p.source || p.provider || p.name || 'Unknown';
+          const priceValue =
+            p.extracted_price ||
+            p.extracted_lowest ||
+            parseFloat(
+              String(p.price || p.lowest || '').replace(/[^0-9.]/g, ''),
+            );
+          const link = p.link || p.url || item.link || '';
+
+          if (providerName && !isNaN(priceValue)) {
+            addPrice(providerName, priceValue, link);
+          }
+        }
+      }
+
+      // 3. Extract from providers array (alternative structure)
+      if (Array.isArray(item.providers)) {
+        for (const p of item.providers) {
+          const providerName = p.name || p.source || 'Unknown';
+          const priceValue =
+            p.extracted_price ||
+            p.price ||
+            parseFloat(String(p.rate || '').replace(/[^0-9.]/g, ''));
+          const link = p.link || p.url || item.link || '';
+
+          if (providerName && !isNaN(priceValue)) {
+            addPrice(providerName, priceValue, link);
+          }
+        }
+      }
+
+      // 4. Fallback to Google's own price (rate_per_night)
+      if (prices.length === 0) {
+        const ratePerNight = item.rate_per_night?.extracted_lowest;
+        if (ratePerNight && !isNaN(ratePerNight)) {
+          addPrice('Google Hotels', ratePerNight, item.link || '');
+        } else if (item.rate_per_night?.lowest) {
+          const priceValue = parseFloat(
+            String(item.rate_per_night.lowest).replace(/[^0-9.]/g, ''),
+          );
+          if (!isNaN(priceValue)) {
+            addPrice('Google Hotels', priceValue, item.link || '');
+          }
+        }
+
+        // total_rate for multi-night stays
+        const totalRate = item.total_rate?.extracted_lowest;
+        if (totalRate && !isNaN(totalRate)) {
+          addPrice('Google Hotels (total)', totalRate, item.link || '');
+        } else if (item.total_rate?.lowest) {
+          const totalRateValue = parseFloat(
+            String(item.total_rate.lowest).replace(/[^0-9.]/g, ''),
+          );
+          if (!isNaN(totalRateValue)) {
+            addPrice('Google Hotels (total)', totalRateValue, item.link || '');
+          }
         }
       }
     } catch (err) {

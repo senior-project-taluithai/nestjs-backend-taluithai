@@ -4,10 +4,10 @@
  */
 
 interface TierPrices {
-  accommodation: number; // per night
-  food: number; // per day (3 meals)
-  transport: number; // local transport per day
-  activities: number; // entrance fees per day
+  accommodation: number;
+  food: number;
+  transport: number;
+  activities: number;
 }
 
 interface ProvincePrices {
@@ -22,6 +22,103 @@ const DEFAULT_PRICES: ProvincePrices = {
   mid: { accommodation: 1500, food: 900, transport: 400, activities: 300 },
   luxury: { accommodation: 4000, food: 1800, transport: 800, activities: 500 },
 };
+
+// Trip type detection based on destination
+export type TripType = 'beach' | 'adventure' | 'city' | 'cultural' | 'default';
+
+// Budget allocation percentages by trip type
+export const ALLOCATION_BY_TRIP_TYPE: Record<
+  TripType,
+  Record<string, number>
+> = {
+  beach: {
+    accommodation: 0.5,
+    food_dining: 0.2,
+    transport: 0.1,
+    activities: 0.15,
+    shopping: 0.05,
+    other: 0.0,
+  },
+  adventure: {
+    accommodation: 0.35,
+    food_dining: 0.2,
+    transport: 0.2,
+    activities: 0.2,
+    shopping: 0.05,
+    other: 0.0,
+  },
+  city: {
+    accommodation: 0.4,
+    food_dining: 0.3,
+    transport: 0.15,
+    activities: 0.1,
+    shopping: 0.05,
+    other: 0.0,
+  },
+  cultural: {
+    accommodation: 0.35,
+    food_dining: 0.25,
+    transport: 0.15,
+    activities: 0.2,
+    shopping: 0.05,
+    other: 0.0,
+  },
+  default: {
+    accommodation: 0.45,
+    food_dining: 0.25,
+    transport: 0.15,
+    activities: 0.1,
+    shopping: 0.05,
+    other: 0.0,
+  },
+};
+
+// Province to trip type mapping
+const PROVINCE_TRIP_TYPE: Record<string, TripType> = {
+  // Beach destinations
+  Phuket: 'beach',
+  Krabi: 'beach',
+  'Koh Samui': 'beach',
+  'Surat Thani': 'beach',
+  Trang: 'beach',
+  Rayong: 'beach',
+  Chonburi: 'beach',
+  'Hua Hin': 'beach',
+  'Phang-nga': 'beach',
+  กระบี่: 'beach',
+  ภูเก็ต: 'beach',
+  สุราษฎร์ธานี: 'beach',
+  ตรัง: 'beach',
+  ระยอง: 'beach',
+  ชลบุรี: 'beach',
+  พังงา: 'beach',
+  // Adventure destinations
+  'Chiang Mai': 'adventure',
+  'Chiang Rai': 'adventure',
+  Pai: 'adventure',
+  Nan: 'adventure',
+  Loei: 'adventure',
+  Kanchanaburi: 'adventure',
+  เชียงใหม่: 'adventure',
+  เชียงราย: 'adventure',
+  น่าน: 'adventure',
+  เลย: 'adventure',
+  กาญจนบุรี: 'adventure',
+  // City destinations
+  Bangkok: 'city',
+  กรุงเทพมหานคร: 'city',
+  // Cultural destinations
+  Ayutthaya: 'cultural',
+  Sukhothai: 'cultural',
+  'Nakhon Ratchasima': 'cultural',
+  อยุธยา: 'cultural',
+  สุโขทัย: 'cultural',
+  นครราชสีมา: 'cultural',
+};
+
+export function detectTripType(province: string): TripType {
+  return PROVINCE_TRIP_TYPE[province] ?? 'default';
+}
 
 const PROVINCE_PRICES: Record<string, ProvincePrices> = {
   // Major tourist provinces
@@ -245,6 +342,7 @@ export function computeBudget(
   hotelPricePerNight: number | null,
   routeSummary: { total_driving_distance_km: number } | null,
   userBudget: number | null,
+  allocationOverrides?: Record<string, number>,
 ): Record<string, unknown> {
   const numDays = tripJson.days.length;
   const province = tripJson.province;
@@ -363,16 +461,23 @@ export function computeBudget(
     { id: 'other', name: 'Other', color: '#6b7280' },
   ];
 
+  const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const total = userBudget ?? Math.round(totalSpent * 1.15); // 15% buffer if no budget specified
+
+  // Detect trip type and get allocation percentages
+  const tripType = detectTripType(province);
+  const baseAllocations = ALLOCATION_BY_TRIP_TYPE[tripType];
+  // Use overrides if provided, otherwise use base allocations
+  const allocations = allocationOverrides ?? baseAllocations;
+
+  // Build categories with allocated amounts based on budget percentages
   const categories = categoryDefs.map((c) => ({
     id: c.id,
     name: c.name,
     color: c.color,
-    allocated: categoryTotals.get(c.id) ?? 0,
+    allocated: Math.round(total * (allocations[c.id] ?? 0)),
     spent: categoryTotals.get(c.id) ?? 0,
   }));
-
-  const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const total = userBudget ?? Math.round(totalSpent * 1.15); // 15% buffer if no budget specified
 
   // Daily budgets
   const dailyTotals = new Map<number, number>();
@@ -396,5 +501,7 @@ export function computeBudget(
     categories,
     dailyBudgets,
     expenses,
+    allocationPercentages: allocations,
+    tripType,
   };
 }

@@ -745,9 +745,11 @@ Your job is to find hotels and accommodations in Thailand.
 ## CRITICAL RULES
 - Call searchHotels EXACTLY ONCE. Do NOT search again in Thai or with different keywords.
 - Do NOT call searchHotels more than once under any circumstance.
-- If user mentions a price limit,USE maxPrice parameter to filter results.
+- If user mentions a price limit, USE maxPrice parameter to filter results.
 - Output ONLY the JSON block below — nothing else before or after.
 - End your turn immediately after outputting the JSON block.
+- **NEVER output example/placeholder data** — only output real data from searchHotels results.
+- **If searchHotels returns empty or you choose not to search**, output: \`{"hotels": []}\`
 
 ## Modification Mode
 If you receive a [CURRENT_HOTELS] context block in the user message:
@@ -757,22 +759,28 @@ If you receive a [CURRENT_HOTELS] context block in the user message:
 - If they ask for "better": search the same location and present higher-rated options.
 
 ## Output Format
+After calling searchHotels, output the results in this JSON format:
 \`\`\`json
 {
   "hotels": [
     {
-      "name": "Hotel Name",
-      "address": "Hotel Address",
-      "latitude": 13.7563,
-      "longitude": 100.5018,
-      "rating": 4.5,
-      "reviewCount": 1250,
-      "priceRange": "฿1,500 - ฿3,000",
-      "thumbnail": "https://..."
+      "name": "<ACTUAL hotel name from search results>",
+      "address": "<ACTUAL address>",
+      "latitude": <actual lat>,
+      "longitude": <actual lng>,
+      "rating": <actual rating>,
+      "reviewCount": <actual count>,
+      "priceRange": "<actual price>",
+      "thumbnail": "<actual thumbnail URL>",
+      "bookingUrl": "<actual booking URL if available>",
+      "imageUrls": ["<actual image URLs>"],
+      "amenities": ["<actual amenities>"]
     }
   ]
 }
-\`\`\``;
+\`\`\`
+
+**IMPORTANT: Replace ALL placeholder values with ACTUAL data from searchHotels. Do NOT output "Hotel Name" or "Hotel Address" — these are EXAMPLE placeholders only.**`;
 
 const SUPERVISOR_PROMPT = `You are TaluiThai AI supervisor.
 Route tasks to these agents: recommend_agent, trip_planner, hotel_agent, budget_agent, route_agent, event_agent.
@@ -1495,14 +1503,36 @@ function extractBudgetJsonFromMessages(messages: unknown[]): BudgetJson | null {
 
 /**
  * Extract hotels JSON from agent messages
+ * Only extracts from ToolMessage (has complete data with imageUrls, amenities, etc.)
+ * Ignores AI markdown output which has incomplete data
  */
 function extractHotelJsonFromMessages(messages: unknown[]): HotelJson | null {
   for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as Record<string, unknown>;
     const content = extractMessageContent(messages[i]);
     if (!content) continue;
-    for (const block of parseJsonCodeBlocks(content)) {
-      if (Array.isArray(block.parsed?.hotels)) {
-        return block.parsed as unknown as HotelJson;
+
+    // Detect ToolMessage type - handles both live LangChain instances and serialized JSON
+    const isToolMessage =
+      typeof (msg as { _getType?: () => string })._getType === 'function'
+        ? (msg as { _getType: () => string })._getType() === 'tool'
+        : Array.isArray((msg as { id?: unknown }).id) &&
+          (msg as { id: unknown[] }).id.includes('ToolMessage');
+
+    // Only extract from ToolMessage - has complete data
+    if (isToolMessage) {
+      try {
+        const parsed = JSON.parse(content) as unknown;
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          'hotels' in parsed &&
+          Array.isArray((parsed as { hotels: unknown }).hotels)
+        ) {
+          return parsed as unknown as HotelJson;
+        }
+      } catch {
+        // Not valid JSON
       }
     }
   }
@@ -1899,7 +1929,14 @@ export function buildTravelAgentGraph(
           ),
       );
       const result = await compiledHotelAgent.invoke({ messages }, config);
-      return { messages: result.messages };
+
+      // Extract hotels from tool messages for state persistence
+      const hotelJson = extractHotelJsonFromMessages(result.messages);
+
+      return {
+        messages: result.messages,
+        currentHotels: hotelJson,
+      };
     })
     .addNode('recommendPipeline', async (state, config) => {
       const messages = state.messages.filter(

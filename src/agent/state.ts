@@ -63,6 +63,8 @@ export interface BudgetJson {
   categories: BudgetCategory[];
   dailyBudgets: BudgetDaily[];
   expenses: BudgetExpense[];
+  allocationPercentages?: Record<string, number>;
+  tripType?: string;
 }
 
 export interface HotelItem {
@@ -139,6 +141,10 @@ export const TravelAgentAnnotation = Annotation.Root({
     default: () => null,
   }),
   currentHotels: Annotation<HotelJson | null>({
+    reducer: (left, right) => (right !== undefined ? right : left),
+    default: () => null,
+  }),
+  allocationOverrides: Annotation<Record<string, number> | null>({
     reducer: (left, right) => (right !== undefined ? right : left),
     default: () => null,
   }),

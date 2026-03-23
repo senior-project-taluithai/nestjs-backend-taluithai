@@ -47,7 +47,7 @@
     "deepagents": "^1.8.3",
     "dotenv": "^17.3.1",
     "google-auth-library": "^10.6.1",
-    "langchain": "^1.2.24",
+    "langchain": "1.2.36",
     "langsmith": "^0.5.4",
     "mongodb": "^7.1.0",
     "nodemailer": "^7.0.12",
