@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { ChatMessage } from './chat-message.entity';
+import { AgentStateJson } from '../interfaces/agent-state.interface';
 
 @Entity('chat_conversations')
 export class ChatConversation {
@@ -40,6 +41,9 @@ export class ChatConversation {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  @Column({ type: 'jsonb', name: 'agent_state', nullable: true })
+  agentState: AgentStateJson | null;
 
   @OneToMany(() => ChatMessage, (message) => message.conversation)
   messages: ChatMessage[];

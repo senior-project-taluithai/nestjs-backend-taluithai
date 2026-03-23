@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions } from 'typeorm';
 import { ChatConversation } from './entities/chat-conversation.entity';
 import { ChatMessage, MessageRole } from './entities/chat-message.entity';
+import { AgentStateJson } from './interfaces/agent-state.interface';
 
 @Injectable()
 export class ChatService {
@@ -321,5 +322,59 @@ export class ChatService {
         `[ChatService] No new AI messages to save (startIndex: ${startIndex}, total messages: ${threadMessages.length})`,
       );
     }
+  }
+
+  async saveAgentState(
+    conversationId: string,
+    userId: string,
+    state: {
+      currentTrip?: Record<string, unknown> | null;
+      currentBudget?: Record<string, unknown> | null;
+      currentHotels?: Record<string, unknown> | null;
+      conversationSummary?: string | null;
+    },
+  ): Promise<void> {
+    const conv = await this.conversationRepository.findOne({
+      where: { id: conversationId, userId, isActive: true },
+    });
+    if (!conv) {
+      console.log(
+        `[ChatService] Conversation not found for saveAgentState: ${conversationId}`,
+      );
+      return;
+    }
+
+    const existing = conv.agentState || {};
+    conv.agentState = {
+      ...existing,
+      ...(state.currentTrip !== undefined
+        ? { currentTrip: state.currentTrip }
+        : {}),
+      ...(state.currentBudget !== undefined
+        ? { currentBudget: state.currentBudget }
+        : {}),
+      ...(state.currentHotels !== undefined
+        ? { currentHotels: state.currentHotels }
+        : {}),
+      ...(state.conversationSummary !== undefined
+        ? { conversationSummary: state.conversationSummary }
+        : {}),
+      lastUpdated: new Date().toISOString(),
+    };
+
+    await this.conversationRepository.save(conv);
+    console.log(
+      `[ChatService] Saved agent state for conversation ${conversationId}`,
+    );
+  }
+
+  async getAgentState(
+    conversationId: string,
+    userId: string,
+  ): Promise<AgentStateJson | null> {
+    const conv = await this.conversationRepository.findOne({
+      where: { id: conversationId, userId, isActive: true },
+    });
+    return conv?.agentState || null;
   }
 }
