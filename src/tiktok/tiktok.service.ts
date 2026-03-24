@@ -1,156 +1,134 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository } from 'typeorm';
+import { ApifyClient } from 'apify-client';
+
 import { TiktokPlaceVideo } from './entities/tiktok-place-video.entity';
-import { chromium } from 'playwright';
 
 const CACHE_DAYS = 7;
 const MAX_VIDEOS = 6;
+const APIFY_ACTOR_ID = 'apidojo/tiktok-scraper';
 
 @Injectable()
 export class TiktokService {
   private readonly logger = new Logger(TiktokService.name);
+  private readonly apifyClient: ApifyClient;
 
   constructor(
     @InjectRepository(TiktokPlaceVideo)
     private readonly tiktokRepo: Repository<TiktokPlaceVideo>,
-  ) {}
+  ) {
+    const token = process.env.APIFY_API_TOKEN;
+    if (!token) {
+      this.logger.warn(
+        'APIFY_API_TOKEN is not set. TikTok search will not work.',
+      );
+    }
+    this.apifyClient = new ApifyClient({ token });
+  }
 
-  /**
-   * Get TikTok video URLs for a place. Returns cached results if fresh,
-   * otherwise scrapes TikTok search and caches.
-   */
   async getVideosForPlace(
     placeId: number,
     placeName: string,
+    placeNameEn?: string,
   ): Promise<string[]> {
     // Check cache first
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - CACHE_DAYS);
 
     const cached = await this.tiktokRepo.find({
-      where: { placeId, cachedAt: MoreThan(cutoff) },
+      where: { placeId },
       order: { cachedAt: 'DESC' },
       take: MAX_VIDEOS,
     });
 
-    if (cached.length > 0) {
+    const isFresh = cached.length > 0 && cached[0].cachedAt > cutoff;
+
+    if (isFresh) {
       return cached.map((v) => v.videoUrl);
     }
 
-    // Scrape fresh results
-    const urls = await this.scrapeVideoUrls(placeName);
+    // Search using Apify TikTok scraper
+    let urls = await this.searchVideoUrls(placeName);
 
-    // Delete old cache for this place
-    await this.tiktokRepo.delete({ placeId });
+    // Try English name if Thai name returns 0 results
+    if (urls.length === 0 && placeNameEn && placeNameEn !== placeName) {
+      this.logger.log(
+        `No results for ${placeName}, trying English name: ${placeNameEn}`,
+      );
+      urls = await this.searchVideoUrls(placeNameEn);
+    }
 
-    // Save new results
+    // If we found new URLs, update the cache
     if (urls.length > 0) {
+      await this.tiktokRepo.delete({ placeId });
+
       const entities = urls.map((url) =>
         this.tiktokRepo.create({ placeId, videoUrl: url }),
       );
       await this.tiktokRepo.save(entities);
+
+      return urls;
     }
 
-    return urls;
+    // If search failed or returned 0, fallback to stale cache
+    if (cached.length > 0) {
+      this.logger.log(`Search failed for ${placeName}, using stale cache`);
+      return cached.map((v) => v.videoUrl);
+    }
+
+    return [];
   }
 
   /**
-   * Scrape TikTok search results for a query string and return video URLs.
-   * Follows the same logic as the Python scraper.
+   * Search TikTok videos via Apify's TikTok scraper actor.
+   * Uses a search URL to find videos relevant to the query.
    */
-  private async scrapeVideoUrls(query: string): Promise<string[]> {
-    let browser;
+  private async searchVideoUrls(query: string): Promise<string[]> {
     try {
-      browser = await chromium.launch({ headless: true });
-      const context = await browser.newContext({
-        userAgent:
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      });
-      const page = await context.newPage();
+      this.logger.log(`Searching TikTok via Apify for: ${query}`);
 
       const searchUrl = `https://www.tiktok.com/search?q=${encodeURIComponent(query)}`;
-      this.logger.log(`Scraping TikTok: ${query}`);
 
-      // Try loading with retry
-      let loaded = false;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          if (attempt === 0) {
-            await page.goto(searchUrl, {
-              timeout: 45000,
-              waitUntil: 'networkidle',
-            });
-          } else {
-            await page.reload({ timeout: 45000, waitUntil: 'networkidle' });
-          }
-          loaded = true;
-          break;
-        } catch {
-          if (attempt === 0) {
-            await page.waitForTimeout(3000);
-          }
-        }
-      }
+      const run = await this.apifyClient.actor(APIFY_ACTOR_ID).call(
+        {
+          startUrls: [searchUrl],
+          maxItems: MAX_VIDEOS,
+          dateRange: 'DEFAULT',
+          location: 'TH',
+          sortType: 'RELEVANCE',
+        },
+        {
+          timeout: 120, // seconds
+          memory: 256, // MB
+        },
+      );
 
-      if (!loaded) {
-        this.logger.warn(`Failed to load TikTok search for: ${query}`);
-        return [];
-      }
+      const { items } = await this.apifyClient
+        .dataset(run.defaultDatasetId)
+        .listItems();
 
-      // Wait for video links
-      try {
-        await page.waitForSelector('a[href*="/video/"]', { timeout: 15000 });
-      } catch {
-        // Try clicking Videos tab
-        try {
-          const tab = await page.$('span:has-text("Videos")');
-          if (tab) {
-            await tab.click();
-            await page.waitForTimeout(2000);
-            await page.waitForSelector('a[href*="/video/"]', {
-              timeout: 10000,
-            });
-          }
-        } catch {
-          this.logger.warn(`No video results for: ${query}`);
-          return [];
-        }
-      }
-
-      // Scroll to load more
-      for (let i = 0; i < 3; i++) {
-        await page.keyboard.press('End');
-        await page.waitForTimeout(1500);
-      }
-      await page.waitForTimeout(2000);
-
-      // Extract video URLs (full href with username)
-      const hrefs: string[] = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll('a'))
-          .map((a) => a.href)
-          .filter((href) => href.includes('/video/'));
-      });
-
-      // Deduplicate by video ID, keep full URL
-      const seen = new Set<string>();
       const urls: string[] = [];
-      for (const href of hrefs) {
-        const match = href.match(/\/@[^/]+\/video\/(\d+)/);
-        if (match && !seen.has(match[1])) {
-          seen.add(match[1]);
-          urls.push(href.split('?')[0]); // strip query params
+      const seen = new Set<string>();
+
+      for (const item of items) {
+        const webVideoUrl =
+          (item as any).webVideoUrl ||
+          (item as any).url ||
+          (item as any).videoUrl;
+
+        if (webVideoUrl && !seen.has(webVideoUrl)) {
+          seen.add(webVideoUrl);
+          urls.push(webVideoUrl.split('?')[0]); // strip query params
           if (urls.length >= MAX_VIDEOS) break;
         }
       }
 
       this.logger.log(`Found ${urls.length} videos for: ${query}`);
       return urls;
-    } catch (err) {
-      this.logger.error(`Scrape error for ${query}: ${err.message}`);
+    } catch (err: any) {
+      this.logger.error(`Apify TikTok search error for ${query}: ${err.message}`);
       return [];
-    } finally {
-      if (browser) await browser.close();
     }
   }
 }
