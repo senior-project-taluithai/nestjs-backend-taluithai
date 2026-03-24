@@ -17,8 +17,10 @@ async function bootstrap() {
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, etc.)
       if (!origin) return callback(null, true);
-      // Allow configured frontend URL
-      if (origin === frontendUrl) return callback(null, true);
+      // Allow configured frontend URL (ignoring trailing slashes)
+      const cleanOrigin = origin.replace(/\/$/, '');
+      const cleanFrontendUrl = frontendUrl.replace(/\/$/, '');
+      if (cleanOrigin === cleanFrontendUrl) return callback(null, true);
       // Allow any localhost/127.0.0.1 in development
       if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
         return callback(null, true);
