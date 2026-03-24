@@ -1,5 +1,6 @@
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod/v4';
+import { Logger } from '@nestjs/common';
 import {
   HotelsScraperService,
   ScrapedHotel,
@@ -45,6 +46,8 @@ function stripQueryParams(url: string): string {
 }
 
 export function createHotelTools(hotelsScraperService: HotelsScraperService) {
+  const logger = new Logger('HotelTools');
+
   const searchHotels = new DynamicStructuredTool({
     name: 'searchHotels',
     description:
@@ -98,8 +101,13 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
       const cacheKey = `hotels:${hashString(`${input.location}:${input.checkInDate ?? ''}:${input.checkOutDate ?? ''}:${input.maxPrice ?? ''}`)}`;
       const TTL_HOTEL = 6 * 60 * 60; // 6 hours
 
+      logger.log(`[searchHotels] Searching hotels for: ${input.location}`);
+
       try {
         return await cachedSearch(cacheKey, TTL_HOTEL, async () => {
+          logger.log(
+            `[searchHotels] Cache miss, fetching from SerpAPI/Playwright...`,
+          );
           const hotels = await hotelsScraperService.searchHotels({
             location: input.location,
             checkInDate: input.checkInDate,
@@ -111,9 +119,13 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
             maxPrice: input.maxPrice,
           });
 
+          logger.log(
+            `[searchHotels] Fetched ${hotels.length} hotels. IDs: ${hotels.map((h) => h.id ?? 'null').join(', ')}`,
+          );
+
           let mapped: MappedHotel[] = hotels.map(
             (hotel: ScrapedHotel, index: number) => ({
-              id: index,
+              id: hotel.id ?? index, // Use DB ID if available, fall back to index
               name: hotel.name,
               address: hotel.address || '',
               latitude: hotel.latitude,
@@ -132,6 +144,11 @@ export function createHotelTools(hotelsScraperService: HotelsScraperService) {
               imageUrls: (hotel.imageUrls || []).slice(0, 3),
               amenities: (hotel.amenities || []).slice(0, 10),
             }),
+          );
+
+          // Log mapped hotel IDs
+          logger.log(
+            `searchHotels: Mapped ${mapped.length} hotels with IDs: ${mapped.map((h) => h.id).join(', ')}`,
           );
 
           // Post-filter by maxPrice as a safety net

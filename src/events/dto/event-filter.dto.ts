@@ -100,4 +100,12 @@ export class EventFilterDto {
   @IsOptional()
   @IsString()
   endDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only show upcoming events (endDate >= now)',
+    default: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  onlyUpcoming?: boolean;
 }

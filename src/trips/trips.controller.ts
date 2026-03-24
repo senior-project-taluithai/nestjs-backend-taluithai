@@ -304,6 +304,66 @@ export class TripsController {
     );
   }
 
+  // ============ Hotels ============
+
+  @Post(':id/hotels')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({
+    summary: 'Get all hotels in trip provinces with search and filters',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Return hotels from trip provinces.',
+  })
+  async getHotelsInTripProvinces(
+    @Req() req,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    filterDto: any,
+  ) {
+    return this.tripsService.getHotelsInTripProvinces(+id, req.user.id, {
+      page: filterDto.page,
+      limit: filterDto.limit,
+      search: filterDto.search,
+      minRating: filterDto.minRating,
+      provinceIds: filterDto.provinceIds,
+      hasPriceRange: filterDto.hasPriceRange,
+    });
+  }
+
+  @Put(':id/days/:dayNumber/hotel')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Set or update hotel for a trip day' })
+  @ApiResponse({ status: 200, description: 'Hotel set for the day.' })
+  async setDayHotel(
+    @Req() req,
+    @Param('id') id: string,
+    @Param('dayNumber') dayNumber: string,
+    @Body(new ValidationPipe({ transform: true, whitelist: true }))
+    body: { hotelId: number; checkinTime?: string; checkoutTime?: string },
+  ) {
+    return this.tripsService.setDayHotel(
+      +id,
+      +dayNumber,
+      req.user.id,
+      body.hotelId,
+      body.checkinTime,
+      body.checkoutTime,
+    );
+  }
+
+  @Delete(':id/days/:dayNumber/hotel')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Remove hotel from a trip day' })
+  @ApiResponse({ status: 200, description: 'Hotel removed from the day.' })
+  async removeDayHotel(
+    @Req() req,
+    @Param('id') id: string,
+    @Param('dayNumber') dayNumber: string,
+  ) {
+    return this.tripsService.removeDayHotel(+id, +dayNumber, req.user.id);
+  }
+
   private mapToTripDto(trip: Trip): TripDto {
     return new TripDto({
       ...trip,

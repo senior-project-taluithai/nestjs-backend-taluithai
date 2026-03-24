@@ -4,6 +4,7 @@ import { HotelsService } from './hotels.service';
 import { SerpApiService } from './serpapi.service';
 
 export interface ScrapedHotel {
+  id?: number; // Database ID after upsert
   name: string;
   address?: string;
   latitude: number;
@@ -68,8 +69,8 @@ export class HotelsScraperService {
       });
       if (serpapiHotels.length > 0) {
         this.logger.log(`SerpAPI returned ${serpapiHotels.length} hotels`);
-        await this.upsertHotels(serpapiHotels);
-        return serpapiHotels;
+        const savedHotels = await this.upsertHotels(serpapiHotels);
+        return savedHotels;
       }
     } catch (err) {
       this.logger.warn(`SerpAPI failed: ${(err as Error).message}`);
@@ -80,8 +81,8 @@ export class HotelsScraperService {
     try {
       const playwrightHotels = await this.scrapeWithPlaywright(options);
       if (playwrightHotels.length > 0) {
-        await this.upsertHotels(playwrightHotels);
-        return playwrightHotels;
+        const savedHotels = await this.upsertHotels(playwrightHotels);
+        return savedHotels;
       }
     } catch (err) {
       this.logger.warn(`Playwright scraping failed: ${(err as Error).message}`);
@@ -981,10 +982,14 @@ export class HotelsScraperService {
     return { lat, lng };
   }
 
-  private async upsertHotels(hotels: ScrapedHotel[]): Promise<void> {
+  private async upsertHotels(hotels: ScrapedHotel[]): Promise<ScrapedHotel[]> {
+    this.logger.log(
+      `[upsertHotels] Upserting ${hotels.length} hotels to database...`,
+    );
+    const savedHotels: ScrapedHotel[] = [];
     for (const hotel of hotels) {
       try {
-        await this.hotelsService.upsertHotel({
+        const savedHotel = await this.hotelsService.upsertHotel({
           name: hotel.name,
           address: hotel.address,
           latitude: hotel.latitude,
@@ -999,10 +1004,19 @@ export class HotelsScraperService {
           imageUrls: hotel.imageUrls,
           amenities: hotel.amenities,
         });
+        hotel.id = savedHotel.id;
+        this.logger.debug(
+          `[upsertHotels] Hotel "${hotel.name}" assigned DB id: ${savedHotel.id}`,
+        );
+        savedHotels.push(hotel);
       } catch (err) {
         this.logger.warn(`Failed to upsert hotel ${hotel.name}: ${err}`);
+        savedHotels.push(hotel);
       }
     }
+    const ids = savedHotels.map((h) => h.id ?? 'null').join(', ');
+    this.logger.log(`[upsertHotels] Complete. Hotel IDs: ${ids}`);
+    return savedHotels;
   }
 
   private formatDate(date: Date): string {

@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { Hotel } from './entities/hotel.entity';
 import { HotelImage } from './entities/hotel-image.entity';
 import { Province } from '../provinces/entities/province.entity';
+import { ProvincePolygonsService } from '../provinces/province-polygons.service';
 
 @Injectable()
 export class HotelsService {
@@ -16,6 +17,7 @@ export class HotelsService {
     private hotelImagesRepository: Repository<HotelImage>,
     @InjectRepository(Province)
     private provincesRepository: Repository<Province>,
+    private readonly provincePolygonsService: ProvincePolygonsService,
   ) {}
 
   async findAll(options: {
@@ -199,6 +201,29 @@ export class HotelsService {
     lat: number,
     lng: number,
   ): Promise<number | null> {
+    // Try polygon-based lookup first (accurate)
+    if (this.provincePolygonsService.isReadyState()) {
+      const result =
+        await this.provincePolygonsService.findProvinceByPointWithId(lat, lng);
+      if (result?.provinceId) {
+        this.logger.debug(
+          `Province "${result.polygon.nameEn}" found for coordinates (${lat}, ${lng}) via polygon lookup`,
+        );
+        return result.provinceId;
+      }
+    }
+
+    // Fallback: centroid distance (for edge cases - islands, borders)
+    this.logger.debug(
+      `No province polygon found for (${lat}, ${lng}), falling back to centroid distance`,
+    );
+    return this.findProvinceByCentroidDistance(lat, lng);
+  }
+
+  private async findProvinceByCentroidDistance(
+    lat: number,
+    lng: number,
+  ): Promise<number | null> {
     const provinces = await this.provincesRepository.find();
 
     let closestProvince: Province | null = null;
@@ -211,7 +236,8 @@ export class HotelsService {
         province.latitude,
         province.longitude,
       );
-      if (distance < minDistance && distance < 100) {
+      // Increase threshold to 200km for better coverage of large provinces
+      if (distance < minDistance && distance < 200) {
         minDistance = distance;
         closestProvince = province;
       }

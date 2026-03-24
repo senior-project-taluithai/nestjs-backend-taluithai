@@ -27,10 +27,9 @@ export interface TripItem {
   event_id?: number;
   note?: string;
   order: number;
-  start_time?: string; // HH:mm
-  end_time?: string; // HH:mm
-  // Enriched fields
-  place?: any; // strict definition would be Place but to avoid circular imports we use any or defined interface
+  start_time?: string;
+  end_time?: string;
+  place?: any;
   event?: any;
 }
 
@@ -105,4 +104,15 @@ export class TripDay {
 
   @Column({ type: 'jsonb', default: [] })
   items: TripItem[];
+
+  @Column({ name: 'hotel_id', type: 'int', nullable: true })
+  hotelId: number | null;
+
+  @Column({ name: 'hotel_checkin_time', type: 'time', nullable: true })
+  hotelCheckinTime: string | null;
+
+  @Column({ name: 'hotel_checkout_time', type: 'time', nullable: true })
+  hotelCheckoutTime: string | null;
+
+  hotel?: any;
 }
