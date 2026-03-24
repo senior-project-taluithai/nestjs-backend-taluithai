@@ -15,6 +15,7 @@ import { FavoritesService } from '../favorites/favorites.service';
 import { RecommendationService } from '../places/recommendation.service';
 import { UsersService } from '../users/users.service';
 import { InteractionsService } from '../interactions/interactions.service';
+import { HotelsService } from '../hotels/hotels.service';
 import {
   CreateTripDayItemDto,
   UpdateTripDayItemDto,
@@ -36,6 +37,7 @@ export class TripsService {
     private recommendationService: RecommendationService,
     private usersService: UsersService,
     private interactionsService: InteractionsService,
+    private hotelsService: HotelsService,
   ) {}
 
   async findAll(userId: string): Promise<Trip[]> {
@@ -54,33 +56,38 @@ export class TripsService {
 
     if (!trip) return null;
 
-    // Enrich trip items with Place/Event details
+    // Collect all IDs for enrichment
     const placeIds: number[] = [];
     const eventIds: number[] = [];
+    const hotelIds: number[] = [];
 
-    // Collect all IDs
     trip.tripDays.forEach((day) => {
       day.items.forEach((item) => {
         if (item.place_id) placeIds.push(item.place_id);
         if (item.event_id) eventIds.push(item.event_id);
       });
+      if (day.hotelId) hotelIds.push(day.hotelId);
     });
 
-    // Fetch details
-    const places =
+    // Fetch details in parallel
+    const [places, events, hotels] = await Promise.all([
       placeIds.length > 0
-        ? await this.placesService.findByIds([...new Set(placeIds)])
-        : [];
-    const events =
+        ? this.placesService.findByIds([...new Set(placeIds)])
+        : Promise.resolve([]),
       eventIds.length > 0
-        ? await this.eventsService.findByIds([...new Set(eventIds)])
-        : [];
+        ? this.eventsService.findByIds([...new Set(eventIds)])
+        : Promise.resolve([]),
+      hotelIds.length > 0
+        ? this.hotelsService.findByIds([...new Set(hotelIds)])
+        : Promise.resolve([]),
+    ]);
 
     // Create maps for O(1) lookup
     const placeMap = new Map(places.map((p) => [p.id, p]));
     const eventMap = new Map(events.map((e) => [e.id, e]));
+    const hotelMap = new Map(hotels.map((h) => [h.id, h]));
 
-    // Attach details to items
+    // Attach details to items and days
     trip.tripDays.forEach((day) => {
       day.items.forEach((item) => {
         if (item.place_id) {
@@ -90,6 +97,10 @@ export class TripsService {
           item.event = eventMap.get(item.event_id);
         }
       });
+      // Attach hotel to day
+      if (day.hotelId) {
+        day.hotel = hotelMap.get(day.hotelId);
+      }
     });
 
     return trip;
@@ -405,24 +416,24 @@ export class TripsService {
 
     const provinceIds = trip.provinces.map((p) => p.id);
 
-    // Get recommended events filtered by provinces
-    const allEvents = await this.eventsService.getRecommended();
-
-    // Filter to only include events from trip's provinces
-    const filteredData = allEvents.filter((event) =>
-      provinceIds.includes(event.provinceId),
+    // Get upcoming events filtered by provinces AND trip dates
+    const allEvents = await this.eventsService.getUpcomingByProvinces(
+      provinceIds,
+      trip.startDate,
+      trip.endDate,
+      100, // Fetch more to allow pagination
     );
 
     // Paginate
     const startIndex = (page - 1) * limit;
     const endIndex = startIndex + limit;
-    const paginatedData = filteredData.slice(startIndex, endIndex);
+    const paginatedData = allEvents.slice(startIndex, endIndex);
 
     return {
       data: paginatedData,
       page,
-      last_page: Math.ceil(filteredData.length / limit),
-      total: filteredData.length,
+      last_page: Math.ceil(allEvents.length / limit),
+      total: allEvents.length,
     };
   }
 
@@ -708,6 +719,129 @@ export class TripsService {
 
     // Sort by new order
     tripDay.items.sort((a, b) => a.order - b.order);
+
+    await this.tripDaysRepository.save(tripDay);
+    return tripDay;
+  }
+
+  // ============ Hotels ============
+
+  async getHotelsInTripProvinces(
+    tripId: number,
+    userId: string,
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      minRating?: number;
+      provinceIds?: number[];
+      hasPriceRange?: boolean;
+    } = {},
+  ) {
+    const trip = await this.findOne(tripId, userId);
+    if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    let targetProvinceIds = trip.provinces.map((p) => p.id);
+
+    if (options.provinceIds && options.provinceIds.length > 0) {
+      targetProvinceIds = targetProvinceIds.filter((id) =>
+        options.provinceIds!.includes(id),
+      );
+    }
+
+    if (targetProvinceIds.length === 0) {
+      return { data: [], page: 1, last_page: 1, total: 0 };
+    }
+
+    const allHotels: any[] = [];
+    for (const provinceId of targetProvinceIds) {
+      const hotels = await this.hotelsService.findAll({
+        provinceId,
+        searchTerm: options.search,
+        limit: 100,
+        page: 1,
+      });
+      allHotels.push(...hotels.data);
+    }
+
+    let filtered = allHotels;
+    if (options.minRating) {
+      filtered = filtered.filter((h) => h.rating >= options.minRating!);
+    }
+    if (options.hasPriceRange) {
+      filtered = filtered.filter(
+        (h) => h.priceRange && h.priceRange.trim() !== '',
+      );
+    }
+
+    filtered.sort((a, b) => b.rating - a.rating);
+
+    const page = options.page || 1;
+    const limit = options.limit || 12;
+    const startIndex = (page - 1) * limit;
+    const paginatedData = filtered.slice(startIndex, startIndex + limit);
+
+    return {
+      data: paginatedData,
+      page,
+      last_page: Math.ceil(filtered.length / limit) || 1,
+      total: filtered.length,
+    };
+  }
+
+  async setDayHotel(
+    tripId: number,
+    dayNumber: number,
+    userId: string,
+    hotelId: number,
+    checkinTime?: string,
+    checkoutTime?: string,
+  ): Promise<TripDay> {
+    const trip = await this.findOne(tripId, userId);
+    if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    const tripDay = trip.tripDays.find((d) => d.dayNumber === dayNumber);
+    if (!tripDay) {
+      throw new NotFoundException(`Day ${dayNumber} not found`);
+    }
+
+    const hotel = await this.hotelsService.findById(hotelId);
+    if (!hotel) {
+      throw new NotFoundException('Hotel not found');
+    }
+
+    tripDay.hotelId = hotelId;
+    tripDay.hotelCheckinTime = checkinTime || null;
+    tripDay.hotelCheckoutTime = checkoutTime || null;
+    tripDay.hotel = hotel;
+
+    await this.tripDaysRepository.save(tripDay);
+    return tripDay;
+  }
+
+  async removeDayHotel(
+    tripId: number,
+    dayNumber: number,
+    userId: string,
+  ): Promise<TripDay> {
+    const trip = await this.findOne(tripId, userId);
+    if (!trip) {
+      throw new NotFoundException('Trip not found');
+    }
+
+    const tripDay = trip.tripDays.find((d) => d.dayNumber === dayNumber);
+    if (!tripDay) {
+      throw new NotFoundException(`Day ${dayNumber} not found`);
+    }
+
+    tripDay.hotelId = null;
+    tripDay.hotelCheckinTime = null;
+    tripDay.hotelCheckoutTime = null;
+    delete tripDay.hotel;
 
     await this.tripDaysRepository.save(tripDay);
     return tripDay;

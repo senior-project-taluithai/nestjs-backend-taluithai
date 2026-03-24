@@ -150,7 +150,7 @@ export class FavoritesService {
       .where('fav.userId = :userId', { userId });
 
     if (provinceIds.length > 0) {
-      query.andWhere('place.provinceId IN (:...provinceIds)', { provinceIds });
+      query.andWhere('place.province_id IN (:...provinceIds)', { provinceIds });
     }
 
     const [favorites, total] = await query
@@ -196,13 +196,14 @@ export class FavoritesService {
       .where('fav.userId = :userId', { userId });
 
     if (provinceIds.length > 0) {
-      query.andWhere('event.provinceId IN (:...provinceIds)', { provinceIds });
+      query.andWhere('event.province_id IN (:...provinceIds)', { provinceIds });
     }
 
     if (startDate && endDate) {
       // (EventStartDate <= FilterEndDate) AND (EventEndDate >= FilterStartDate)
+      // Also allow events with no end_date if their start_date is within the trip or before the end date.
       query.andWhere(
-        '(event.startDate <= :endDate AND event.endDate >= :startDate)',
+        '(event.start_date <= :endDate AND (event.end_date IS NULL OR event.end_date >= :startDate))',
         { startDate, endDate },
       );
     }

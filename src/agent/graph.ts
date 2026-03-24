@@ -485,8 +485,12 @@ If the user mentions a region (e.g., "Northern Thailand", "Southern Thailand", "
 3. Every place MUST come from tool results and include real pg_place_id, latitude, longitude.
 4. Keep the itinerary compact: max 4 items per day.
 5. Provide realistic schedule: Calculate realistic "startTime" and "endTime" (e.g. "09:00", "10:30") for each place. Do NOT assign the same time slot to multiple places. Allow time for travel between places.
-6. **EVENTS**: You MUST call searchEvents once for the destination province to check for upcoming events/festivals. Pass the province name and trip date range (startDate, endDate in YYYY-MM-DD). If events are found during the trip dates, include 1-2 relevant ones in the itinerary as items with "type": "event" and "event_id".
-7. EXTREMELY IMPORTANT: Once the itinerary is ready, output the JSON block and END YOUR TURN. Do NOT continue to call tools after generating the JSON. DO NOT over-search.
+6. **HOTEL CHECK-INS/OUTS**: You MUST consider hotel check-in and check-out times when planning the itinerary!
+   - Make sure check-in/out times are appropriate for the specific trip (e.g., usually check-in 14:00, check-out 12:00, but adjust if arriving late).
+   - VERY IMPORTANT: Leave a realistic gap in your schedule exactly around the hotelCheckinTime so the user has time to travel to the hotel and check in. DO NOT schedule activities that overlap with the check-in time! (e.g., if checkin is 14:00, do not schedule an activity from 13:00 to 15:30). The system will automatically insert a hotel stop into the route at the "hotelCheckinTime".
+   - You MUST output the "hotelCheckinTime" and "hotelCheckoutTime" fields at the day level for days with a check-in or check-out. For intermediate days where the user stays at the same hotel, you must still provide these fields with standard times (e.g., 14:00 and 12:00).
+7. **EVENTS**: You MUST call searchEvents once for the destination province to check for upcoming events/festivals. Pass the province name and trip date range (startDate, endDate in YYYY-MM-DD). If events are found during the trip dates, include 1-2 relevant ones in the itinerary as items with "type": "event" and "event_id".
+8. EXTREMELY IMPORTANT: Once the itinerary is ready, output the JSON block and END YOUR TURN. Do NOT continue to call tools after generating the JSON. DO NOT over-search.
 
 ## CRITICAL OUTPUT FORMAT
 Return a JSON code block with exactly this shape. For places use "type": "place" with pg_place_id. For events use "type": "event" with event_id:
@@ -497,6 +501,8 @@ Return a JSON code block with exactly this shape. For places use "type": "place"
   "province": "Province",
   "days": [{
     "day": 1,
+    "hotelCheckinTime": "14:00",
+    "hotelCheckoutTime": "12:00",
     "items": [
       {
         "type": "place",
@@ -515,8 +521,8 @@ Return a JSON code block with exactly this shape. For places use "type": "place"
         "latitude": 13.0,
         "longitude": 100.0,
         "thumbnail_url": "<url from tool>",
-        "startTime": "14:00",
-        "endTime": "16:00"
+        "startTime": "16:00",
+        "endTime": "18:00"
       }
     ]
   }]
@@ -668,14 +674,14 @@ Do NOT ask the user to select hotels. In the trip pipeline, ALL hotels from hote
 ## Step-by-Step Instructions
 1. Extract places and hotels from the conversation:
    - Places: name, latitude, longitude, pg_place_id, category
-   - Hotels: name, latitude, longitude, rating, price_range (ignore bookingUrl, website, thumbnail)
-2. IMPORTANT: Convert destination_province to ENGLISH (e.g., "กระบี่" → "Krabi", "ภูเก็ต" → "Phuket")
+   - Hotels: id, name, latitude, longitude, rating, price_range (ignore bookingUrl, website, thumbnail)
+2. IMPORTANT: Convert destination_province to ENGLISH (e.g., "กระบี่" → "Krabi", "ภูเก็ต" → Phuket")
 3. Call planRoute with:
    - user_location: {"latitude": 13.7563, "longitude": 100.5018} (Bangkok default)
    - destination_province: English province name
    - num_days: number of days in the trip
    - places: array of place objects
-   - shortlisted_hotels: array of ALL hotel objects from hotel_agent
+   - shortlisted_hotels: array of ALL hotel objects from hotel_agent (MUST include id field)
 4. Output ONLY the JSON code block with the planRoute response
 
 ## Expected planRoute Input Example
@@ -689,7 +695,7 @@ Do NOT ask the user to select hotels. In the trip pipeline, ALL hotels from hote
     {"name": "Madras Cafe Krabi", "latitude": 8.0322344, "longitude": 98.8239852, "pg_place_id": 50087, "category": "ร้านอาหาร"}
   ],
   "shortlisted_hotels": [
-    {"name": "Krabi Bloom House", "latitude": 8.0408561, "longitude": 98.9901993, "rating": 5, "price_range": "702 - 702"}
+    {"id": 123, "name": "Krabi Bloom House", "latitude": 8.0408561, "longitude": 98.9901993, "rating": 5, "price_range": "702 - 702"}
   ]
 }
 \`\`\`
@@ -721,6 +727,7 @@ Do NOT ask the user to select hotels. In the trip pipeline, ALL hotels from hote
 ## CRITICAL RULES
 - You MUST call planRoute tool IMMEDIATELY - do NOT ask questions, do NOT wait for user input
 - Use ALL hotels from hotel_agent as shortlisted_hotels - do NOT ask user to select
+- Each hotel MUST include the "id" field from hotel_agent output - this is required for saving hotels
 - ALWAYS convert Thai province names to English (กระบี่ → Krabi, ภูเก็ต → Phuket, etc.)
 - If planRoute fails, report the error and do not make up data
 - Output ONLY the JSON code block - no text before, during, or after
@@ -764,6 +771,7 @@ After calling searchHotels, output the results in this JSON format:
 {
   "hotels": [
     {
+      "id": <database id from searchHotels results - REQUIRED for saving hotels>,
       "name": "<ACTUAL hotel name from search results>",
       "address": "<ACTUAL address>",
       "latitude": <actual lat>,
@@ -779,6 +787,8 @@ After calling searchHotels, output the results in this JSON format:
   ]
 }
 \`\`\`
+
+**CRITICAL: You MUST include the "id" field from searchHotels results. This is the database ID required for saving hotels to the trip.**
 
 **IMPORTANT: Replace ALL placeholder values with ACTUAL data from searchHotels. Do NOT output "Hotel Name" or "Hotel Address" — these are EXAMPLE placeholders only.**`;
 
@@ -1301,12 +1311,19 @@ interface ExtractedRouteInput {
   user_location: { latitude: number; longitude: number };
   destination_province: string;
   num_days: number;
-  places: Array<{
-    name: string;
-    latitude: number;
-    longitude: number;
-    pg_place_id?: number;
-    category?: string;
+  days: Array<{
+    day: number;
+    hotelCheckinTime: string;
+    hotelCheckoutTime: string;
+    places: Array<{
+      name: string;
+      latitude: number;
+      longitude: number;
+      pg_place_id?: number;
+      category?: string;
+      startTime?: string;
+      endTime?: string;
+    }>;
   }>;
   shortlisted_hotels: Array<{
     name: string;
@@ -1402,21 +1419,26 @@ function extractRouteInput(messages: unknown[]): ExtractedRouteInput | null {
   if (!tripJson || !hotelJson) return null;
 
   const days = tripJson.days as Array<{
+    day?: number;
+    hotelCheckinTime?: string;
+    hotelCheckoutTime?: string;
     items?: Array<Record<string, unknown>>;
   }>;
   const province = (tripJson.province as string) || 'Bangkok';
   const numDays = days.length;
 
   // Extract places from all days
-  const places: ExtractedRouteInput['places'] = [];
+  const extractedDays: ExtractedRouteInput['days'] = [];
   for (const day of days) {
-    for (const item of day.items ?? []) {
+    const dayPlaces: ExtractedRouteInput['days'][0]['places'] = [];
+    const rawItems = (day.items as Array<Record<string, unknown>>) || [];
+    for (const item of rawItems) {
       if (
         typeof item.latitude === 'number' &&
         typeof item.longitude === 'number' &&
         typeof item.name === 'string'
       ) {
-        places.push({
+        dayPlaces.push({
           name: item.name,
           latitude: item.latitude,
           longitude: item.longitude,
@@ -1424,9 +1446,24 @@ function extractRouteInput(messages: unknown[]): ExtractedRouteInput | null {
             typeof item.pg_place_id === 'number' ? item.pg_place_id : undefined,
           category:
             typeof item.category === 'string' ? item.category : undefined,
+          startTime:
+            typeof item.startTime === 'string' ? item.startTime : undefined,
+          endTime: typeof item.endTime === 'string' ? item.endTime : undefined,
         });
       }
     }
+    extractedDays.push({
+      day: typeof day.day === 'number' ? day.day : extractedDays.length + 1,
+      hotelCheckinTime:
+        typeof day.hotelCheckinTime === 'string'
+          ? day.hotelCheckinTime
+          : '14:00',
+      hotelCheckoutTime:
+        typeof day.hotelCheckoutTime === 'string'
+          ? day.hotelCheckoutTime
+          : '12:00',
+      places: dayPlaces,
+    });
   }
 
   // Extract hotels
@@ -1439,17 +1476,28 @@ function extractRouteInput(messages: unknown[]): ExtractedRouteInput | null {
       name: (h.name as string) || 'Hotel',
       latitude: h.latitude as number,
       longitude: h.longitude as number,
+      hotel_id: typeof h.id === 'number' ? h.id : undefined,
       rating: typeof h.rating === 'number' ? h.rating : undefined,
       price_range: typeof h.priceRange === 'string' ? h.priceRange : undefined,
     }));
 
-  if (places.length === 0) return null;
+  // Log hotel IDs to verify they're being extracted correctly
+  if (shortlistedHotels.length > 0) {
+    const hotelIds = shortlistedHotels
+      .map((h) => h.hotel_id ?? 'null')
+      .join(', ');
+    console.log(
+      `[extractRouteInput] Extracted ${shortlistedHotels.length} hotels with IDs: ${hotelIds}`,
+    );
+  }
+
+  if (extractedDays.length === 0) return null;
 
   return {
     user_location: { latitude: 13.7563, longitude: 100.5018 }, // Bangkok default
     destination_province: province,
     num_days: numDays,
-    places,
+    days: extractedDays,
     shortlisted_hotels: shortlistedHotels,
   };
 }

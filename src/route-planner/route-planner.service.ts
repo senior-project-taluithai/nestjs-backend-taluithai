@@ -39,15 +39,11 @@ export class RoutePlannerService {
     const { startPoint, transitAdvice } = await this.resolveStartPoint(request);
 
     // === Step 2.2: Day Clustering ===
-    const orderedClusters = this.clusterPlacesByDay(
-      request.places,
-      request.num_days,
-      startPoint,
-    );
+    // We now use the AI's requested days instead of K-Means clustering
 
     // === Steps 2.3 + 2.4: Route Optimization + Hotel Matching ===
     const itinerary = await this.buildItinerary(
-      orderedClusters,
+      request.days,
       startPoint,
       transitAdvice,
       request.shortlisted_hotels,
@@ -146,7 +142,7 @@ export class RoutePlannerService {
     }
 
     // Last resort: use centroid of input places
-    const places = request.places;
+    const places = request.days.flatMap((d) => d.places);
     const centroidLat =
       places.reduce((sum, p) => sum + p.latitude, 0) / places.length;
     const centroidLng =
@@ -162,51 +158,10 @@ export class RoutePlannerService {
     };
   }
 
-  // ─── Step 2.2: Day Clustering ───────────────────────────────────
-
-  private clusterPlacesByDay(
-    places: RoutePlannerPlaceDto[],
-    numDays: number,
-    startPoint: { latitude: number; longitude: number },
-  ): Cluster<RoutePlannerPlaceDto>[] {
-    if (places.length <= numDays) {
-      // Fewer places than days — 1 place per day
-      const clusters = places.map((p) => ({
-        centroid: { latitude: p.latitude, longitude: p.longitude },
-        members: [p],
-      }));
-      return this.sortClustersByProximity(clusters, startPoint);
-    }
-
-    const clusters = kMeans(places, numDays);
-    return this.sortClustersByProximity(clusters, startPoint);
-  }
-
-  private sortClustersByProximity(
-    clusters: Cluster<RoutePlannerPlaceDto>[],
-    startPoint: { latitude: number; longitude: number },
-  ): Cluster<RoutePlannerPlaceDto>[] {
-    return [...clusters].sort((a, b) => {
-      const distA = haversineKm(
-        startPoint.latitude,
-        startPoint.longitude,
-        a.centroid.latitude,
-        a.centroid.longitude,
-      );
-      const distB = haversineKm(
-        startPoint.latitude,
-        startPoint.longitude,
-        b.centroid.latitude,
-        b.centroid.longitude,
-      );
-      return distA - distB;
-    });
-  }
-
   // ─── Steps 2.3 + 2.4: Route Optimization + Hotel Matching ──────
 
   private async buildItinerary(
-    orderedClusters: Cluster<RoutePlannerPlaceDto>[],
+    days: import('./dto/route-planner.dto').RoutePlannerDayDto[],
     startPoint: { name: string; latitude: number; longitude: number },
     transitAdvice: string | null,
     hotels: RoutePlannerHotelDto[],
@@ -225,14 +180,17 @@ export class RoutePlannerService {
 
     let currentStart = startPoint;
 
-    for (let dayIdx = 0; dayIdx < orderedClusters.length; dayIdx++) {
-      const cluster = orderedClusters[dayIdx];
-      const isLastDay = dayIdx === orderedClusters.length - 1;
+    for (let dayIdx = 0; dayIdx < days.length; dayIdx++) {
+      const dayPlan = days[dayIdx];
+      const isLastDay = dayIdx === days.length - 1;
 
-      const optimizedPlaces = await this.optimizeVisitOrder(
-        currentStart,
-        cluster.members,
-      );
+      // Instead of relying on OSRM Trip to optimizeVisitOrder blindly,
+      // sort the places by `startTime` since the AI has already planned a logical temporal sequence.
+      const optimizedPlaces = [...dayPlan.places].sort((a, b) => {
+        const timeA = a.startTime || '23:59';
+        const timeB = b.startTime || '23:59';
+        return timeA.localeCompare(timeB);
+      });
 
       const lastPlace =
         optimizedPlaces[optimizedPlaces.length - 1] ?? currentStart;
@@ -246,15 +204,11 @@ export class RoutePlannerService {
               name: override.hotel_name,
               latitude: override.latitude,
               longitude: override.longitude,
+              hotel_id: override.hotel_id,
             }
           : this.matchHotel(lastPlace, hotels, prevHotel);
 
-      const waypoints = this.buildDayWaypoints(
-        currentStart,
-        optimizedPlaces,
-        selectedHotel,
-      );
-
+      // Construct route properly interjecting the hotel at the correct time
       const route: RouteStop[] = [
         {
           type: 'start',
@@ -262,19 +216,36 @@ export class RoutePlannerService {
           lat: currentStart.latitude,
           lng: currentStart.longitude,
         },
-        ...optimizedPlaces.map(
-          (p): RouteStop => ({
-            type: 'place',
-            name: p.name,
-            lat: p.latitude,
-            lng: p.longitude,
-            pg_place_id: p.pg_place_id,
-            category: p.category,
-          }),
-        ),
       ];
 
-      if (selectedHotel) {
+      let hotelInserted = false;
+      const hotelCheckinTime = dayPlan.hotelCheckinTime || '14:00';
+
+      for (const p of optimizedPlaces) {
+        if (!isLastDay && selectedHotel && !hotelInserted) {
+          const pTime = p.startTime || '23:59';
+          if (pTime.localeCompare(hotelCheckinTime) >= 0) {
+            route.push({
+              type: 'hotel',
+              name: selectedHotel.name,
+              lat: selectedHotel.latitude,
+              lng: selectedHotel.longitude,
+              hotel_id: selectedHotel.hotel_id,
+            });
+            hotelInserted = true;
+          }
+        }
+        route.push({
+          type: 'place',
+          name: p.name,
+          lat: p.latitude,
+          lng: p.longitude,
+          pg_place_id: p.pg_place_id,
+          category: p.category,
+        });
+      }
+
+      if (!isLastDay && selectedHotel && !hotelInserted) {
         route.push({
           type: 'hotel',
           name: selectedHotel.name,
@@ -282,6 +253,19 @@ export class RoutePlannerService {
           lng: selectedHotel.longitude,
           hotel_id: selectedHotel.hotel_id,
         });
+      }
+
+      const waypoints = route.map((r) => ({
+        latitude: r.lat,
+        longitude: r.lng,
+      }));
+
+      if (selectedHotel) {
+        this.logger.debug(
+          `Day ${dayIdx + 1}: Assigned hotel "${selectedHotel.name}" (hotel_id: ${selectedHotel.hotel_id ?? 'null'}) at check-in time ${hotelCheckinTime}`,
+        );
+      } else {
+        this.logger.debug(`Day ${dayIdx + 1}: No hotel assigned`);
       }
 
       dayPlans.push({

@@ -27,18 +27,27 @@ export function createRoutePlannerTools(
         .min(1)
         .max(14)
         .describe('Number of travel days'),
-      places: z
+      days: z
         .array(
           z.object({
-            name: z.string(),
-            latitude: z.number(),
-            longitude: z.number(),
-            pg_place_id: z.number().optional(),
-            category: z.string().optional(),
-          }),
+            day: z.number().int(),
+            hotelCheckinTime: z.string().optional().default('14:00'),
+            hotelCheckoutTime: z.string().optional().default('12:00'),
+            places: z.array(
+              z.object({
+                name: z.string(),
+                latitude: z.number(),
+                longitude: z.number(),
+                pg_place_id: z.number().optional(),
+                category: z.string().optional(),
+                startTime: z.string().optional(),
+                endTime: z.string().optional(),
+              })
+            ),
+          })
         )
         .min(1)
-        .describe('List of places from trip planner'),
+        .describe('List of travel days with places and hotel scheduling'),
       shortlisted_hotels: z
         .array(
           z.object({
@@ -59,7 +68,7 @@ export function createRoutePlannerTools(
           user_location: input.user_location,
           destination_province: input.destination_province,
           num_days: input.num_days,
-          places: input.places,
+          days: input.days,
           shortlisted_hotels: input.shortlisted_hotels,
         });
 

@@ -44,6 +44,36 @@ export class RoutePlannerPlaceDto {
   @IsOptional()
   @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsString()
+  @ApiProperty({ example: '09:00', required: false })
+  startTime?: string;
+
+  @IsOptional()
+  @IsString()
+  @ApiProperty({ example: '10:30', required: false })
+  endTime?: string;
+}
+
+export class RoutePlannerDayDto {
+  @IsInt()
+  @ApiProperty({ example: 1 })
+  day: number;
+
+  @IsString()
+  @ApiProperty({ example: '14:00' })
+  hotelCheckinTime: string;
+
+  @IsString()
+  @ApiProperty({ example: '12:00' })
+  hotelCheckoutTime: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutePlannerPlaceDto)
+  @ApiProperty({ type: [RoutePlannerPlaceDto] })
+  places: RoutePlannerPlaceDto[];
 }
 
 export class RoutePlannerHotelDto {
@@ -88,6 +118,11 @@ export class HotelOverrideDto {
   @IsNumber()
   @ApiProperty({ example: 99.6304955 })
   longitude: number;
+
+  @IsOptional()
+  @IsNumber()
+  @ApiProperty({ example: 123, description: 'Database ID of the hotel' })
+  hotel_id?: number;
 }
 
 export class RoutePlannerRequestDto {
@@ -109,9 +144,9 @@ export class RoutePlannerRequestDto {
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => RoutePlannerPlaceDto)
-  @ApiProperty({ type: [RoutePlannerPlaceDto] })
-  places: RoutePlannerPlaceDto[];
+  @Type(() => RoutePlannerDayDto)
+  @ApiProperty({ type: [RoutePlannerDayDto] })
+  days: RoutePlannerDayDto[];
 
   @IsArray()
   @ArrayMinSize(1)

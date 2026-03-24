@@ -51,6 +51,26 @@ export class TripDayDto {
   })
   items: TripItem[];
 
+  @Expose({ name: 'hotel_id' })
+  @ApiProperty({ name: 'hotel_id', example: 1, nullable: true })
+  hotelId: number | null;
+
+  @Expose({ name: 'hotel_checkin_time' })
+  @ApiProperty({ name: 'hotel_checkin_time', example: '14:00', nullable: true })
+  hotelCheckinTime: string | null;
+
+  @Expose({ name: 'hotel_checkout_time' })
+  @ApiProperty({
+    name: 'hotel_checkout_time',
+    example: '12:00',
+    nullable: true,
+  })
+  hotelCheckoutTime: string | null;
+
+  @Expose()
+  @ApiProperty({ nullable: true })
+  hotel: any;
+
   constructor(partial: Partial<TripDayDto>) {
     Object.assign(this, partial);
   }

@@ -21,6 +21,8 @@ import { AgentModule } from './agent/agent.module';
 import { InteractionsModule } from './interactions/interactions.module';
 import { ChatModule } from './chat/chat.module';
 import { RoutePlannerModule } from './route-planner/route-planner.module';
+import { HotelsModule } from './hotels/hotels.module';
+import { CacheModule } from './cache/cache.module';
 
 @Module({
   imports: [
@@ -52,6 +54,7 @@ import { RoutePlannerModule } from './route-planner/route-planner.module';
     PlacesModule,
     EventsModule,
     FavoritesModule,
+    HotelsModule,
     TripsModule,
     MongoModule,
     EmbeddingModule,
@@ -60,6 +63,7 @@ import { RoutePlannerModule } from './route-planner/route-planner.module';
     InteractionsModule,
     ChatModule,
     RoutePlannerModule,
+    CacheModule,
   ],
   controllers: [AppController],
   providers: [AppService],

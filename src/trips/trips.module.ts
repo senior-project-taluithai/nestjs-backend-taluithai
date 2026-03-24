@@ -10,6 +10,7 @@ import { EventsModule } from '../events/events.module';
 import { FavoritesModule } from '../favorites/favorites.module';
 import { UsersModule } from '../users/users.module';
 import { InteractionsModule } from '../interactions/interactions.module';
+import { HotelsModule } from '../hotels/hotels.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { InteractionsModule } from '../interactions/interactions.module';
     FavoritesModule,
     UsersModule,
     InteractionsModule,
+    HotelsModule,
   ],
   controllers: [TripsController],
   providers: [TripsService, TripsSchedulerService],
