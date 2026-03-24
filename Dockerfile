@@ -51,4 +51,4 @@ COPY package.json ./
 EXPOSE $PORT
 
 # Start the application
-CMD ["node", "dist/main"]
+CMD ["node", "dist/src/main"]
