@@ -18,7 +18,10 @@ describe('AppService', () => {
 
   describe('healthCheck', () => {
     it('should return ok', () => {
-      expect(service.healthCheck()).toEqual({ status: 'ok', message: 'Server is running' });
+      expect(service.healthCheck()).toEqual({
+        status: 'ok',
+        message: 'Server is running',
+      });
     });
   });
 });

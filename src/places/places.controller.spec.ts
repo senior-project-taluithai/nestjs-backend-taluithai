@@ -11,7 +11,9 @@ describe('PlacesController', () => {
 
   const mockPlacesService = {
     getRecommended: jest.fn().mockResolvedValue([]),
-    findAll: jest.fn().mockResolvedValue({ data: [], page: 1, last_page: 1, total: 0 }),
+    findAll: jest
+      .fn()
+      .mockResolvedValue({ data: [], page: 1, last_page: 1, total: 0 }),
     getPopular: jest.fn().mockResolvedValue([]),
     getHiddenGems: jest.fn().mockResolvedValue([]),
     getBestSeason: jest.fn().mockResolvedValue([]),
@@ -21,7 +23,9 @@ describe('PlacesController', () => {
   };
 
   const mockUsersService = {
-    getRecommendationPreferences: jest.fn().mockResolvedValue({ preferredCategoryIds: [], preferredRegions: [] }),
+    getRecommendationPreferences: jest
+      .fn()
+      .mockResolvedValue({ preferredCategoryIds: [], preferredRegions: [] }),
     getUserPreferences: jest.fn().mockResolvedValue([]),
   };
 
@@ -106,7 +110,10 @@ describe('PlacesController', () => {
       const place = { id: 1, name: 'Test' };
       mockPlacesService.findOne.mockResolvedValue(place);
       const result = await controller.getTiktokVideos('1');
-      expect(mockTiktokService.getVideosForPlace).toHaveBeenCalledWith(1, 'Test');
+      expect(mockTiktokService.getVideosForPlace).toHaveBeenCalledWith(
+        1,
+        'Test',
+      );
     });
   });
 
@@ -119,8 +126,8 @@ describe('PlacesController', () => {
     });
 
     it('should return null if id is not a number', async () => {
-        const result = await controller.findOne('abc');
-        expect(result).toBeNull();
+      const result = await controller.findOne('abc');
+      expect(result).toBeNull();
     });
   });
 

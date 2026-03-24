@@ -28,8 +28,8 @@ describe('EmbeddingService', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({
-          data: [{ index: 0, embedding: [0.1, 0.2, 0.3] }]
-        })
+          data: [{ index: 0, embedding: [0.1, 0.2, 0.3] }],
+        }),
       });
 
       const result = await service.encodeOne('test');
@@ -38,12 +38,12 @@ describe('EmbeddingService', () => {
     });
 
     it('should throw error if API fails', async () => {
-        global.fetch = jest.fn().mockResolvedValue({
-            ok: false,
-            status: 500,
-            statusText: 'Error'
-        });
-        await expect(service.encodeOne('test')).rejects.toThrow();
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Error',
+      });
+      await expect(service.encodeOne('test')).rejects.toThrow();
     });
   });
 });

@@ -46,8 +46,14 @@ describe('FavoritesService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FavoritesService,
-        { provide: getRepositoryToken(UserFavoritePlace), useValue: mockFavPlacesRepo },
-        { provide: getRepositoryToken(UserFavoriteEvent), useValue: mockFavEventsRepo },
+        {
+          provide: getRepositoryToken(UserFavoritePlace),
+          useValue: mockFavPlacesRepo,
+        },
+        {
+          provide: getRepositoryToken(UserFavoriteEvent),
+          useValue: mockFavEventsRepo,
+        },
       ],
     }).compile();
 
@@ -61,7 +67,10 @@ describe('FavoritesService', () => {
 
   describe('getFavoritePlaces', () => {
     it('should return paginated favorite places', async () => {
-      const result = await service.getFavoritePlaces('user1', { page: 1, pageSize: 10 });
+      const result = await service.getFavoritePlaces('user1', {
+        page: 1,
+        pageSize: 10,
+      });
       expect(result.data).toBeInstanceOf(Array);
       expect(mockFavPlacesRepo.findAndCount).toHaveBeenCalled();
     });
@@ -69,7 +78,10 @@ describe('FavoritesService', () => {
 
   describe('getFavoriteEvents', () => {
     it('should return paginated favorite events', async () => {
-      const result = await service.getFavoriteEvents('user1', { page: 1, pageSize: 10 });
+      const result = await service.getFavoriteEvents('user1', {
+        page: 1,
+        pageSize: 10,
+      });
       expect(result.data).toBeInstanceOf(Array);
       expect(mockFavEventsRepo.findAndCount).toHaveBeenCalled();
     });
@@ -100,9 +112,9 @@ describe('FavoritesService', () => {
     });
 
     it('should return false if count is 0', async () => {
-        mockFavPlacesRepo.count.mockResolvedValue(0);
-        const result = await service.isPlaceSaved('user1', 1);
-        expect(result).toBe(false);
+      mockFavPlacesRepo.count.mockResolvedValue(0);
+      const result = await service.isPlaceSaved('user1', 1);
+      expect(result).toBe(false);
     });
   });
 });

@@ -23,7 +23,7 @@ describe('CategoriesService', () => {
 
     service = module.get<CategoriesService>(CategoriesService);
     repository = module.get<Repository<Category>>(getRepositoryToken(Category));
-    
+
     jest.clearAllMocks();
   });
 

@@ -34,7 +34,7 @@ describe('ProvincesController', () => {
     it('should call provincesService.findAll', async () => {
       const provinces = [{ id: 1, name: 'Bangkok' }];
       mockProvincesService.findAll.mockResolvedValue(provinces);
-      
+
       const result = await controller.findAll();
       expect(result.length).toBe(1);
       expect(service.findAll).toHaveBeenCalled();
@@ -45,22 +45,28 @@ describe('ProvincesController', () => {
     it('should call provincesService.findOne', async () => {
       const province = { id: 1, name: 'Bangkok' };
       mockProvincesService.findOne.mockResolvedValue(province);
-      
+
       const result = await controller.findOne('1');
       expect(result).toBeDefined();
       expect(service.findOne).toHaveBeenCalledWith(1);
     });
 
     it('should return null if not found', async () => {
-        mockProvincesService.findOne.mockResolvedValue(null);
-        const result = await controller.findOne('999');
-        expect(result).toBeNull();
+      mockProvincesService.findOne.mockResolvedValue(null);
+      const result = await controller.findOne('999');
+      expect(result).toBeNull();
     });
   });
 
   describe('create', () => {
     it('should call provincesService.create', async () => {
-      const dto = { name: 'New', nameEn: 'NewEn', latitude: 0, longitude: 0, regionId: 1 };
+      const dto = {
+        name: 'New',
+        nameEn: 'NewEn',
+        latitude: 0,
+        longitude: 0,
+        regionId: 1,
+      };
       mockProvincesService.create.mockResolvedValue({ id: 1, ...dto });
 
       const result = await controller.create(dto as any);

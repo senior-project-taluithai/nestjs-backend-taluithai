@@ -43,8 +43,10 @@ describe('QdrantService', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({
-          result: { points: [{ id: '1', score: 0.9, payload: { title: 'Place 1' } }] }
-        })
+          result: {
+            points: [{ id: '1', score: 0.9, payload: { title: 'Place 1' } }],
+          },
+        }),
       });
 
       const result = await service.search('query');

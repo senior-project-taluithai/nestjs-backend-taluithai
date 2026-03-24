@@ -29,7 +29,7 @@ describe('ProvincesService', () => {
 
     service = module.get<ProvincesService>(ProvincesService);
     repository = module.get<Repository<Province>>(getRepositoryToken(Province));
-    
+
     jest.clearAllMocks();
   });
 
@@ -66,7 +66,13 @@ describe('ProvincesService', () => {
 
   describe('create', () => {
     it('should create and save a province', async () => {
-      const dto = { name: 'New', nameEn: 'NewEn', latitude: 0, longitude: 0, regionId: 1 };
+      const dto = {
+        name: 'New',
+        nameEn: 'NewEn',
+        latitude: 0,
+        longitude: 0,
+        regionId: 1,
+      };
       mockRepository.create.mockReturnValue(dto);
       mockRepository.save.mockResolvedValue({ id: 1, ...dto });
 

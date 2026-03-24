@@ -24,7 +24,7 @@ describe('RecommendationService', () => {
 
     service = module.get<RecommendationService>(RecommendationService);
     configService = module.get<ConfigService>(ConfigService);
-    
+
     jest.clearAllMocks();
   });
 
@@ -65,13 +65,13 @@ describe('RecommendationService', () => {
     });
 
     it('should return empty array on failure', async () => {
-        (service as any).auth = {
-            getIdTokenClient: jest.fn().mockRejectedValue(new Error('Auth failed')),
-        };
-        (service as any).serviceUrl = 'http://test-url';
+      (service as any).auth = {
+        getIdTokenClient: jest.fn().mockRejectedValue(new Error('Auth failed')),
+      };
+      (service as any).serviceUrl = 'http://test-url';
 
-        const result = await service.recommend('query');
-        expect(result).toEqual([]);
+      const result = await service.recommend('query');
+      expect(result).toEqual([]);
     });
   });
 });

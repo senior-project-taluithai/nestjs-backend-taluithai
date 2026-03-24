@@ -13,9 +13,7 @@ describe('RoutePlannerController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [RoutePlannerController],
-      providers: [
-        { provide: RoutePlannerService, useValue: mockService },
-      ],
+      providers: [{ provide: RoutePlannerService, useValue: mockService }],
     }).compile();
 
     controller = module.get<RoutePlannerController>(RoutePlannerController);

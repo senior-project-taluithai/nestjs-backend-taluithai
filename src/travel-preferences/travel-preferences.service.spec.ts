@@ -20,13 +20,18 @@ describe('TravelPreferencesService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TravelPreferencesService,
-        { provide: getRepositoryToken(TravelPreference), useValue: mockRepository },
+        {
+          provide: getRepositoryToken(TravelPreference),
+          useValue: mockRepository,
+        },
       ],
     }).compile();
 
     service = module.get<TravelPreferencesService>(TravelPreferencesService);
-    repository = module.get<Repository<TravelPreference>>(getRepositoryToken(TravelPreference));
-    
+    repository = module.get<Repository<TravelPreference>>(
+      getRepositoryToken(TravelPreference),
+    );
+
     jest.clearAllMocks();
   });
 

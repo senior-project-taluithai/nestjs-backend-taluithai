@@ -42,9 +42,9 @@ export function createRoutePlannerTools(
                 category: z.string().optional(),
                 startTime: z.string().optional(),
                 endTime: z.string().optional(),
-              })
+              }),
             ),
-          })
+          }),
         )
         .min(1)
         .describe('List of travel days with places and hotel scheduling'),

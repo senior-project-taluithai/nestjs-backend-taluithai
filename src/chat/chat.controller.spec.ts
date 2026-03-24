@@ -9,7 +9,9 @@ describe('ChatController', () => {
   let agentService: AgentService;
 
   const mockChatService = {
-    createConversation: jest.fn().mockResolvedValue({ id: '1', threadId: 't1' }),
+    createConversation: jest
+      .fn()
+      .mockResolvedValue({ id: '1', threadId: 't1' }),
     addMessage: jest.fn(),
     getConversations: jest.fn().mockResolvedValue({ data: [], total: 0 }),
     getConversation: jest.fn().mockResolvedValue({ id: '1', threadId: 't1' }),
@@ -60,10 +62,10 @@ describe('ChatController', () => {
   });
 
   describe('getConversation', () => {
-      it('should call chatService.getConversation', async () => {
-          const req = { user: { id: 'u1' } };
-          await controller.getConversation(req as any, '1-2-3-4-5');
-          expect(chatService.getConversation).toHaveBeenCalled();
-      });
+    it('should call chatService.getConversation', async () => {
+      const req = { user: { id: 'u1' } };
+      await controller.getConversation(req as any, '1-2-3-4-5');
+      expect(chatService.getConversation).toHaveBeenCalled();
+    });
   });
 });

@@ -8,8 +8,14 @@ describe('RoutePlannerService', () => {
   let service: RoutePlannerService;
 
   const mockToolsService = {
-    osrmTrip: jest.fn().mockResolvedValue({ waypoints: [{ waypoint_index: 0 }, { waypoint_index: 1 }] }),
-    calculateRoute: jest.fn().mockResolvedValue({ distance_km: 10, duration_minutes: 20, geometry: 'poly' }),
+    osrmTrip: jest.fn().mockResolvedValue({
+      waypoints: [{ waypoint_index: 0 }, { waypoint_index: 1 }],
+    }),
+    calculateRoute: jest.fn().mockResolvedValue({
+      distance_km: 10,
+      duration_minutes: 20,
+      geometry: 'poly',
+    }),
   };
 
   const mockProvincesService = {
@@ -43,11 +49,18 @@ describe('RoutePlannerService', () => {
         places: [],
         shortlisted_hotels: [],
       };
-      await expect(service.planRoute(req as any)).rejects.toThrow(NotFoundException);
+      await expect(service.planRoute(req as any)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should generate an itinerary', async () => {
-      mockProvincesService.findByNameEn.mockResolvedValue({ id: 1, nameEn: 'Bangkok', latitude: 13, longitude: 100 });
+      mockProvincesService.findByNameEn.mockResolvedValue({
+        id: 1,
+        nameEn: 'Bangkok',
+        latitude: 13,
+        longitude: 100,
+      });
       const req = {
         destination_province: 'Bangkok',
         user_location: { latitude: 13, longitude: 100 },
@@ -55,7 +68,7 @@ describe('RoutePlannerService', () => {
         places: [{ name: 'P1', latitude: 13.1, longitude: 100.1 }],
         shortlisted_hotels: [{ name: 'H1', latitude: 13.2, longitude: 100.2 }],
       };
-      
+
       const result = await service.planRoute(req as any);
       expect(result.itinerary).toBeDefined();
       expect(result.summary).toBeDefined();
@@ -63,22 +76,28 @@ describe('RoutePlannerService', () => {
   });
 
   describe('resolveStartPoint', () => {
-      it('should return user location if nearby', async () => {
-          mockProvincesService.findByNameEn.mockResolvedValue({ latitude: 13, longitude: 100 });
-          const result = await (service as any).resolveStartPoint({
-              destination_province: 'BKK',
-              user_location: { latitude: 13.1, longitude: 100.1 }
-          });
-          expect(result.startPoint.name).toBe('Your Location');
+    it('should return user location if nearby', async () => {
+      mockProvincesService.findByNameEn.mockResolvedValue({
+        latitude: 13,
+        longitude: 100,
       });
+      const result = await (service as any).resolveStartPoint({
+        destination_province: 'BKK',
+        user_location: { latitude: 13.1, longitude: 100.1 },
+      });
+      expect(result.startPoint.name).toBe('Your Location');
+    });
 
-      it('should return transit hub if far', async () => {
-          mockProvincesService.findByNameEn.mockResolvedValue({ latitude: 13, longitude: 100 });
-          const result = await (service as any).resolveStartPoint({
-              destination_province: 'Phuket',
-              user_location: { latitude: 13, longitude: 100 }
-          });
-          expect(result.transitAdvice).toBeDefined();
+    it('should return transit hub if far', async () => {
+      mockProvincesService.findByNameEn.mockResolvedValue({
+        latitude: 13,
+        longitude: 100,
       });
+      const result = await (service as any).resolveStartPoint({
+        destination_province: 'Phuket',
+        user_location: { latitude: 13, longitude: 100 },
+      });
+      expect(result.transitAdvice).toBeDefined();
+    });
   });
 });

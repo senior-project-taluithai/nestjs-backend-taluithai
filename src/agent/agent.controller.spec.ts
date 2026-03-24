@@ -16,9 +16,7 @@ describe('AgentController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AgentController],
-      providers: [
-        { provide: AgentService, useValue: mockAgentService },
-      ],
+      providers: [{ provide: AgentService, useValue: mockAgentService }],
     }).compile();
 
     controller = module.get<AgentController>(AgentController);
@@ -56,9 +54,9 @@ describe('AgentController', () => {
   });
 
   describe('getAssistant', () => {
-      it('should return assistant info', () => {
-          const result = controller.getAssistant('travel_agent');
-          expect(result.assistant_id).toBe('travel_agent');
-      });
+    it('should return assistant info', () => {
+      const result = controller.getAssistant('travel_agent');
+      expect(result.assistant_id).toBe('travel_agent');
+    });
   });
 });

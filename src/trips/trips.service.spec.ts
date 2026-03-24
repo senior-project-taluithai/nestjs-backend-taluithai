@@ -116,44 +116,52 @@ describe('TripsService', () => {
       const trip = {
         id: 1,
         userId: 'user1',
-        tripDays: [
-          { dayNumber: 1, items: [{ id: 1, place_id: 10 }] }
-        ],
-        provinces: []
+        tripDays: [{ dayNumber: 1, items: [{ id: 1, place_id: 10 }] }],
+        provinces: [],
       };
       mockTripsRepo.findOne.mockResolvedValue(trip);
-      mockPlacesService.findByIds.mockResolvedValue([{ id: 10, name: 'Place 10' }]);
-      
+      mockPlacesService.findByIds.mockResolvedValue([
+        { id: 10, name: 'Place 10' },
+      ]);
+
       const result = await service.findOne(1, 'user1');
       expect(result.tripDays[0].items[0].place).toBeDefined();
     });
   });
 
   describe('addItemToTripDay', () => {
-      it('should add item and save trip day', async () => {
-          const trip = {
-              id: 1,
-              tripDays: [{ dayNumber: 1, items: [] }],
-              provinces: []
-          };
-          jest.spyOn(service, 'findOne').mockResolvedValue(trip as any);
-          
-          await service.addItemToTripDay(1, 1, 'user1', { item_type: 'place', item_id: 10 });
-          expect(mockTripDaysRepo.save).toHaveBeenCalled();
+    it('should add item and save trip day', async () => {
+      const trip = {
+        id: 1,
+        tripDays: [{ dayNumber: 1, items: [] }],
+        provinces: [],
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(trip as any);
+
+      await service.addItemToTripDay(1, 1, 'user1', {
+        item_type: 'place',
+        item_id: 10,
       });
+      expect(mockTripDaysRepo.save).toHaveBeenCalled();
+    });
   });
 
   describe('getRecommendedPlaces', () => {
-      it('should return recommended places', async () => {
-          const trip = { id: 1, provinces: [{ id: 1, name: 'BKK' }], tripDays: [] };
-          jest.spyOn(service, 'findOne').mockResolvedValue(trip as any);
-          mockUsersService.getRecommendationPreferences.mockResolvedValue({ preferredCategoryIds: [], preferredRegions: [] });
-          mockInteractionsService.getUserEngagement.mockResolvedValue({});
-          mockRecommendationService.recommend.mockResolvedValue([10]);
-          mockPlacesService.findByIds.mockResolvedValue([{ id: 10, province: { id: 1 } }]);
-
-          const result = await service.getRecommendedPlaces(1, 'user1');
-          expect(result.data.length).toBe(1);
+    it('should return recommended places', async () => {
+      const trip = { id: 1, provinces: [{ id: 1, name: 'BKK' }], tripDays: [] };
+      jest.spyOn(service, 'findOne').mockResolvedValue(trip as any);
+      mockUsersService.getRecommendationPreferences.mockResolvedValue({
+        preferredCategoryIds: [],
+        preferredRegions: [],
       });
+      mockInteractionsService.getUserEngagement.mockResolvedValue({});
+      mockRecommendationService.recommend.mockResolvedValue([10]);
+      mockPlacesService.findByIds.mockResolvedValue([
+        { id: 10, province: { id: 1 } },
+      ]);
+
+      const result = await service.getRecommendedPlaces(1, 'user1');
+      expect(result.data.length).toBe(1);
+    });
   });
 });

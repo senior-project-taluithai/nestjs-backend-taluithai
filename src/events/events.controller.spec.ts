@@ -8,7 +8,9 @@ describe('EventsController', () => {
 
   const mockEventsService = {
     getRecommended: jest.fn().mockResolvedValue([]),
-    findAll: jest.fn().mockResolvedValue({ data: [], page: 1, last_page: 1, total: 0 }),
+    findAll: jest
+      .fn()
+      .mockResolvedValue({ data: [], page: 1, last_page: 1, total: 0 }),
     getUpcoming: jest.fn().mockResolvedValue([]),
     getUpcomingByProvinces: jest.fn().mockResolvedValue([]),
     findByMonth: jest.fn().mockResolvedValue([]),
@@ -20,9 +22,7 @@ describe('EventsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [EventsController],
-      providers: [
-        { provide: EventsService, useValue: mockEventsService },
-      ],
+      providers: [{ provide: EventsService, useValue: mockEventsService }],
     }).compile();
 
     controller = module.get<EventsController>(EventsController);
@@ -62,7 +62,11 @@ describe('EventsController', () => {
 
   describe('getUpcomingByProvinces', () => {
     it('should call eventsService.getUpcomingByProvinces', async () => {
-      const result = await controller.getUpcomingByProvinces('1,2', '2024-05-01', '2024-05-31');
+      const result = await controller.getUpcomingByProvinces(
+        '1,2',
+        '2024-05-01',
+        '2024-05-31',
+      );
       expect(service.getUpcomingByProvinces).toHaveBeenCalled();
     });
   });
@@ -84,8 +88,8 @@ describe('EventsController', () => {
     });
 
     it('should return null if id is not a number', async () => {
-        const result = await controller.findOne('abc');
-        expect(result).toBeNull();
+      const result = await controller.findOne('abc');
+      expect(result).toBeNull();
     });
   });
 

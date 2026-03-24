@@ -46,16 +46,16 @@ describe('ToolsService', () => {
     create: jest.fn(),
     save: jest.fn(),
     createQueryBuilder: jest.fn().mockReturnValue({
-        leftJoinAndSelect: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
-        getOne: jest.fn(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn(),
     }),
   };
 
   const mockPlaceCategoryRepo = {
-      create: jest.fn(),
-      save: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -69,7 +69,10 @@ describe('ToolsService', () => {
         { provide: ProvincesService, useValue: mockProvincesService },
         { provide: CategoriesService, useValue: mockCategoriesService },
         { provide: getRepositoryToken(Place), useValue: mockPlaceRepo },
-        { provide: getRepositoryToken(PlaceCategory), useValue: mockPlaceCategoryRepo },
+        {
+          provide: getRepositoryToken(PlaceCategory),
+          useValue: mockPlaceCategoryRepo,
+        },
       ],
     }).compile();
 
@@ -96,7 +99,12 @@ describe('ToolsService', () => {
   describe('vectorSearch', () => {
     it('should call qdrantService and enrich results', async () => {
       mockQdrantService.search.mockResolvedValue([
-        { title: 'Place 1', latitude: 13, longitude: 100, source_collection: 'attraction' }
+        {
+          title: 'Place 1',
+          latitude: 13,
+          longitude: 100,
+          source_collection: 'attraction',
+        },
       ]);
       await service.vectorSearch('test query');
       expect(mockQdrantService.search).toHaveBeenCalled();
@@ -109,11 +117,14 @@ describe('ToolsService', () => {
         ok: true,
         json: jest.fn().mockResolvedValue({
           code: 'Ok',
-          routes: [{ distance: 10000, duration: 600, geometry: {}, legs: [] }]
-        })
+          routes: [{ distance: 10000, duration: 600, geometry: {}, legs: [] }],
+        }),
       });
       const result = await service.calculateRoute({
-        waypoints: [{ latitude: 13, longitude: 100 }, { latitude: 13.1, longitude: 100.1 }]
+        waypoints: [
+          { latitude: 13, longitude: 100 },
+          { latitude: 13.1, longitude: 100.1 },
+        ],
       });
       expect(result.distance_km).toBe(10);
       expect(result.duration_minutes).toBe(10);

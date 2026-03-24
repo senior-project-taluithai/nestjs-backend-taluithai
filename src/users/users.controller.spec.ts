@@ -16,9 +16,7 @@ describe('UsersController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [
-        { provide: UsersService, useValue: mockUsersService },
-      ],
+      providers: [{ provide: UsersService, useValue: mockUsersService }],
     }).compile();
 
     controller = module.get<UsersController>(UsersController);
@@ -36,7 +34,7 @@ describe('UsersController', () => {
       const req = { user: { id: '1' } };
       const prefs = [{ id: 1, name: 'Adventure' }];
       mockUsersService.getUserPreferences.mockResolvedValue(prefs);
-      
+
       const result = await controller.getMyPreferences(req);
       expect(service.getUserPreferences).toHaveBeenCalledWith('1');
       expect(result).toEqual(prefs);
@@ -49,7 +47,7 @@ describe('UsersController', () => {
       const dto = { preferenceIds: [1, 2] };
       const prefs = [{ id: 1 }, { id: 2 }];
       mockUsersService.updateUserPreferences.mockResolvedValue(prefs);
-      
+
       const result = await controller.updatePreferences(req, dto);
       expect(service.updateUserPreferences).toHaveBeenCalledWith('1', [1, 2]);
       expect(result).toEqual(prefs);
@@ -61,7 +59,7 @@ describe('UsersController', () => {
       const req = { user: { id: '1' } };
       const prefs = { preferredCategoryIds: [1], preferredRegions: ['North'] };
       mockUsersService.getRecommendationPreferences.mockResolvedValue(prefs);
-      
+
       const result = await controller.getRecommendationPreferences(req);
       expect(service.getRecommendationPreferences).toHaveBeenCalledWith('1');
       expect(result).toEqual(prefs);
@@ -73,9 +71,13 @@ describe('UsersController', () => {
       const req = { user: { id: '1' } };
       const dto = { preferredCategoryIds: [1], preferredRegions: ['North'] };
       mockUsersService.updateRecommendationPreferences.mockResolvedValue(dto);
-      
+
       const result = await controller.updateRecommendationPreferences(req, dto);
-      expect(service.updateRecommendationPreferences).toHaveBeenCalledWith('1', [1], ['North']);
+      expect(service.updateRecommendationPreferences).toHaveBeenCalledWith(
+        '1',
+        [1],
+        ['North'],
+      );
       expect(result).toEqual(dto);
     });
   });

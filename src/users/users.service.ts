@@ -235,7 +235,7 @@ export class UsersService {
       .where('interaction.user_id = :userId', { userId })
       .andWhere('interaction.place_id IS NOT NULL')
       .getRawOne();
-      
+
     const places = parseInt(placesResult?.count || '0', 10);
 
     return { trips, places, saved };
