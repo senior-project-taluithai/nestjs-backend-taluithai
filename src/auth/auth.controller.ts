@@ -54,8 +54,11 @@ export class AuthController {
     }
     const { access_token } = await this.authService.login(user);
 
+    const isProduction = process.env.NODE_ENV === 'production';
     response.cookie('Authentication', access_token, {
       httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 1 day
     });
 
@@ -66,7 +69,12 @@ export class AuthController {
   @ApiOperation({ summary: 'User logout' })
   @ApiResponse({ status: 200, description: 'User successfully logged out.' })
   async logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('Authentication');
+    const isProduction = process.env.NODE_ENV === 'production';
+    response.clearCookie('Authentication', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+    });
     return { message: 'Logout successful' };
   }
 
