@@ -41,7 +41,8 @@ describe('TiktokService', () => {
   };
 
   beforeEach(async () => {
-    process.env.APIFY_API_TOKEN = 'test-token';
+    process.env.APIFY_API_TOKEN1 = 'test-token-1';
+    process.env.APIFY_API_TOKEN2 = 'test-token-2';
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -55,6 +56,11 @@ describe('TiktokService', () => {
 
     service = module.get<TiktokService>(TiktokService);
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    delete process.env.APIFY_API_TOKEN1;
+    delete process.env.APIFY_API_TOKEN2;
   });
 
   it('should be defined', () => {
@@ -81,6 +87,13 @@ describe('TiktokService', () => {
         'https://www.tiktok.com/@user2/video/7987654321',
       );
       expect(mockRepository.save).toHaveBeenCalled();
+    });
+
+    it('should rotate between tokens on successive calls', async () => {
+      mockRepository.find.mockResolvedValue([]);
+      await service.getVideosForPlace(1, 'Place1');
+      await service.getVideosForPlace(2, 'Place2');
+      expect(mockCall).toHaveBeenCalledTimes(2);
     });
   });
 });

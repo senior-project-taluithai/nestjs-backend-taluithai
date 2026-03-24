@@ -7,24 +7,43 @@ import { TiktokPlaceVideo } from './entities/tiktok-place-video.entity';
 
 const CACHE_DAYS = 7;
 const MAX_VIDEOS = 6;
-const APIFY_ACTOR_ID = 'apidojo/tiktok-scraper';
+const APIFY_ACTOR_ID = 'OtzYfK1ndEGdwWFKQ';
 
 @Injectable()
 export class TiktokService {
   private readonly logger = new Logger(TiktokService.name);
-  private readonly apifyClient: ApifyClient;
+  private readonly apifyClients: ApifyClient[] = [];
+  private tokenIndex = 0;
 
   constructor(
     @InjectRepository(TiktokPlaceVideo)
     private readonly tiktokRepo: Repository<TiktokPlaceVideo>,
   ) {
-    const token = process.env.APIFY_API_TOKEN;
-    if (!token) {
+    const token1 = process.env.APIFY_API_TOKEN1;
+    const token2 = process.env.APIFY_API_TOKEN2;
+
+    if (token1) {
+      this.apifyClients.push(new ApifyClient({ token: token1 }));
+      this.logger.log('APIFY_API_TOKEN1 loaded');
+    }
+    if (token2) {
+      this.apifyClients.push(new ApifyClient({ token: token2 }));
+      this.logger.log('APIFY_API_TOKEN2 loaded');
+    }
+
+    if (this.apifyClients.length === 0) {
       this.logger.warn(
-        'APIFY_API_TOKEN is not set. TikTok search will not work.',
+        'No APIFY_API_TOKEN1 or APIFY_API_TOKEN2 set. TikTok search will not work.',
       );
     }
-    this.apifyClient = new ApifyClient({ token });
+  }
+
+  private getNextClient(): ApifyClient | null {
+    if (this.apifyClients.length === 0) return null;
+    const client =
+      this.apifyClients[this.tokenIndex % this.apifyClients.length];
+    this.tokenIndex++;
+    return client;
   }
 
   async getVideosForPlace(
@@ -86,17 +105,30 @@ export class TiktokService {
    */
   private async searchVideoUrls(query: string): Promise<string[]> {
     try {
-      this.logger.log(`Searching TikTok via Apify for: ${query}`);
+      const apifyClient = this.getNextClient();
+      if (!apifyClient) {
+        this.logger.error('No Apify client available');
+        return [];
+      }
 
-      const searchUrl = `https://www.tiktok.com/search?q=${encodeURIComponent(query)}`;
+      const tokenNum = ((this.tokenIndex - 1) % this.apifyClients.length) + 1;
+      this.logger.log(
+        `Searching TikTok via Apify (TOKEN${tokenNum}) for: ${query}`,
+      );
 
-      const run = await this.apifyClient.actor(APIFY_ACTOR_ID).call(
+      const run = await apifyClient.actor(APIFY_ACTOR_ID).call(
         {
-          startUrls: [searchUrl],
-          maxItems: MAX_VIDEOS,
-          dateRange: 'DEFAULT',
-          location: 'TH',
-          sortType: 'RELEVANCE',
+          hashtags: [query],
+          resultsPerPage: MAX_VIDEOS,
+          profileScrapeSections: ['videos'],
+          profileSorting: 'latest',
+          excludePinnedPosts: false,
+          searchSection: '',
+          maxProfilesPerQuery: 10,
+          shouldDownloadVideos: false,
+          shouldDownloadCovers: false,
+          shouldDownloadSubtitles: false,
+          shouldDownloadSlideshowImages: false,
         },
         {
           timeout: 120, // seconds
@@ -104,7 +136,7 @@ export class TiktokService {
         },
       );
 
-      const { items } = await this.apifyClient
+      const { items } = await apifyClient
         .dataset(run.defaultDatasetId)
         .listItems();
 
@@ -127,7 +159,9 @@ export class TiktokService {
       this.logger.log(`Found ${urls.length} videos for: ${query}`);
       return urls;
     } catch (err: any) {
-      this.logger.error(`Apify TikTok search error for ${query}: ${err.message}`);
+      this.logger.error(
+        `Apify TikTok search error for ${query}: ${err.message}`,
+      );
       return [];
     }
   }
