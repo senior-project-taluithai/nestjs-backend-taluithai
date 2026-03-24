@@ -173,11 +173,7 @@ export class PlacesService {
             : `place.${filter.orderField}`;
 
       if (filter.orderField === 'reviewCount') {
-        query
-          .leftJoin('place.reviews', 'rc')
-          .addSelect('COUNT(rc.id)', 'reviewCount')
-          .groupBy('place.id')
-          .orderBy('reviewCount', filter.orderDir || 'DESC');
+        query.orderBy('place.userRatingCount', filter.orderDir || 'DESC');
       } else {
         query.orderBy(field, filter.orderDir || 'DESC');
       }

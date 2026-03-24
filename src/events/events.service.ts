@@ -33,9 +33,9 @@ export class EventsService {
 
     query
       .leftJoinAndSelect('event.province', 'province')
-      .leftJoinAndSelect('event.images', 'images')
-      .leftJoinAndSelect('event.eventCategories', 'eventCategories')
-      .leftJoinAndSelect('eventCategories.category', 'category');
+      .leftJoin('event.images', 'images')
+      .leftJoin('event.eventCategories', 'eventCategories')
+      .leftJoin('eventCategories.category', 'category');
 
     if (searchTerm) {
       query.andWhere(
@@ -80,6 +80,7 @@ export class EventsService {
           .leftJoin('event.reviews', 'rc')
           .addSelect('COUNT(rc.id)', 'reviewCount')
           .groupBy('event.id')
+          .addGroupBy('province.id')
           .orderBy('reviewCount', filter.orderDir || 'DESC');
       } else {
         const field =
@@ -94,9 +95,17 @@ export class EventsService {
 
     const [events, total] = await query.getManyAndCount();
 
-    // Calculate review counts separately if not already loaded
     const eventIds = events.map((e) => e.id);
     if (eventIds.length > 0) {
+      // 1. Fetch array relations that were skipped earlier
+      const eventsWithRelations = await this.eventsRepository.find({
+        where: { id: In(eventIds) },
+        relations: ['images', 'eventCategories', 'eventCategories.category'],
+      });
+      const relationMap = new Map();
+      eventsWithRelations.forEach((e) => relationMap.set(e.id, e));
+
+      // 2. Fetch review counts
       const reviews = await this.reviewsRepository
         .createQueryBuilder('r')
         .where('r.eventId IN (:...eventIds)', { eventIds })
@@ -106,7 +115,16 @@ export class EventsService {
       reviews.forEach((r) => {
         countMap.set(r.eventId, (countMap.get(r.eventId) || 0) + 1);
       });
+
       events.forEach((event) => {
+        const full = relationMap.get(event.id);
+        if (full) {
+          event.images = full.images || [];
+          event.eventCategories = full.eventCategories || [];
+          if (typeof event.updateThumbnailFromImages === 'function') {
+            event.updateThumbnailFromImages();
+          }
+        }
         (event as any).review_count = countMap.get(event.id) || 0;
       });
     }
