@@ -160,12 +160,12 @@ export class TiktokService {
 
       const run = await apifyClient.actor(APIFY_ACTOR_ID).call(
         {
-          hashtags: [query],
+          searchQueries: [query],
           resultsPerPage: MAX_VIDEOS,
+          searchSection: '/video',
           profileScrapeSections: ['videos'],
           profileSorting: 'latest',
           excludePinnedPosts: false,
-          searchSection: '',
           maxProfilesPerQuery: 10,
           shouldDownloadVideos: false,
           shouldDownloadCovers: false,
