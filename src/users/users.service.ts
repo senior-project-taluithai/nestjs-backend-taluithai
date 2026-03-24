@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { User } from './entities/user.entity';
 import { TravelPreference } from '../travel-preferences/entities/travel-preference.entity';
+import { Trip } from '../trips/entities/trip.entity';
+import { UserFavoritePlace } from '../favorites/entities/user-favorite-place.entity';
+import { UserFavoriteEvent } from '../favorites/entities/user-favorite-event.entity';
+import { UserInteraction } from '../interactions/entities/user-interaction.entity';
 
 const VALID_REGIONS = new Set([
   'North',
@@ -20,6 +24,14 @@ export class UsersService {
     private usersRepository: Repository<User>,
     @InjectRepository(TravelPreference)
     private travelPreferencesRepository: Repository<TravelPreference>,
+    @InjectRepository(Trip)
+    private tripsRepository: Repository<Trip>,
+    @InjectRepository(UserFavoritePlace)
+    private favPlacesRepo: Repository<UserFavoritePlace>,
+    @InjectRepository(UserFavoriteEvent)
+    private favEventsRepo: Repository<UserFavoriteEvent>,
+    @InjectRepository(UserInteraction)
+    private interactionsRepo: Repository<UserInteraction>,
   ) {}
 
   async create(data: Partial<User>): Promise<User> {
@@ -199,5 +211,33 @@ export class UsersService {
       where: { id: userId },
     });
     return user?.agentPreferences || null;
+  }
+
+  async getUserTravelStats(userId: string) {
+    // Number of trips owned by the user
+    const trips = await this.tripsRepository.count({
+      where: { userId },
+    });
+
+    // Number of total saved items (places + events)
+    const savedPlaces = await this.favPlacesRepo.count({
+      where: { userId },
+    });
+    const savedEvents = await this.favEventsRepo.count({
+      where: { userId },
+    });
+    const saved = savedPlaces + savedEvents;
+
+    // Number of distinct places the user interacted with uniquely
+    const placesResult = await this.interactionsRepo
+      .createQueryBuilder('interaction')
+      .select('COUNT(DISTINCT interaction.place_id)', 'count')
+      .where('interaction.user_id = :userId', { userId })
+      .andWhere('interaction.place_id IS NOT NULL')
+      .getRawOne();
+      
+    const places = parseInt(placesResult?.count || '0', 10);
+
+    return { trips, places, saved };
   }
 }

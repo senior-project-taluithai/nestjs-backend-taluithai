@@ -76,4 +76,13 @@ export class UsersController {
       body.preferredRegions,
     );
   }
+  @Get('me/travel-stats')
+  @ApiOperation({ summary: 'Get user travel stats (Trips, Places, Saved)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return user travel stats.',
+  })
+  async getTravelStats(@Req() req) {
+    return this.usersService.getUserTravelStats(req.user.id);
+  }
 }
