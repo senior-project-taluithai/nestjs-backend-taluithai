@@ -36,7 +36,7 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=8080
+ENV PORT=8000
 
 # Configure timezone to match main.ts expected timezone (Asia/Bangkok)
 RUN apk add --no-cache tzdata && \

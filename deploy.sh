@@ -16,7 +16,7 @@ gcloud run deploy $SERVICE_NAME \
   --source . \
   --region $REGION \
   --allow-unauthenticated \
-  --set-env-vars "NODE_ENV=production,PORT=8080" \
+  --set-env-vars "NODE_ENV=production,PORT=8000" \
   --platform managed
 
 echo "✅ Deployment complete!"
