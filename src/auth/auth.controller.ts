@@ -62,7 +62,7 @@ export class AuthController {
       expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 1 day
     });
 
-    return { message: 'Login successful', user };
+    return { message: 'Login successful', user, access_token };
   }
 
   @Post('logout')
