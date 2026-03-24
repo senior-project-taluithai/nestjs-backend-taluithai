@@ -66,8 +66,14 @@ describe('PlacesService', () => {
         PlacesService,
         { provide: UsersService, useValue: mockUsersService },
         { provide: getRepositoryToken(Place), useValue: mockPlacesRepository },
-        { provide: getRepositoryToken(PlaceReview), useValue: mockReviewsRepository },
-        { provide: getRepositoryToken(Category), useValue: mockCategoryRepository },
+        {
+          provide: getRepositoryToken(PlaceReview),
+          useValue: mockReviewsRepository,
+        },
+        {
+          provide: getRepositoryToken(Category),
+          useValue: mockCategoryRepository,
+        },
         { provide: RecommendationService, useValue: mockRecommendationService },
         { provide: MongoService, useValue: mockMongoService },
       ],
@@ -75,7 +81,7 @@ describe('PlacesService', () => {
 
     service = module.get<PlacesService>(PlacesService);
     placesRepository = module.get<Repository<Place>>(getRepositoryToken(Place));
-    
+
     jest.clearAllMocks();
   });
 
@@ -97,9 +103,11 @@ describe('PlacesService', () => {
       mockPlacesRepository.findOne.mockResolvedValue(place);
       const result = await service.findOne(1);
       expect(result).toEqual(place);
-      expect(mockPlacesRepository.findOne).toHaveBeenCalledWith(expect.objectContaining({
-        where: { id: 1 }
-      }));
+      expect(mockPlacesRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 1 },
+        }),
+      );
     });
   });
 
@@ -132,7 +140,10 @@ describe('PlacesService', () => {
 
   describe('getCategoryNames', () => {
     it('should return category names', async () => {
-      mockCategoryRepository.find.mockResolvedValue([{ name: 'Nature' }, { name: 'Culture' }]);
+      mockCategoryRepository.find.mockResolvedValue([
+        { name: 'Nature' },
+        { name: 'Culture' },
+      ]);
       const result = await (service as any).getCategoryNames([1, 2]);
       expect(result).toEqual(['Nature', 'Culture']);
     });
@@ -143,7 +154,7 @@ describe('PlacesService', () => {
       mockRecommendationService.recommend.mockResolvedValue([1, 2]);
       mockPlacesRepository.find.mockResolvedValue([{ id: 1 }, { id: 2 }]);
       mockCategoryRepository.find.mockResolvedValue([]);
-      
+
       const result = await service.getRecommended();
       expect(result).toBeInstanceOf(Array);
     });

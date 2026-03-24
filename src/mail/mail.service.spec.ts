@@ -37,10 +37,12 @@ describe('MailService', () => {
   describe('sendResetPasswordEmail', () => {
     it('should call transporter.sendMail', async () => {
       await service.sendResetPasswordEmail('test@test.com', 'token123');
-      expect(mockTransporter.sendMail).toHaveBeenCalledWith(expect.objectContaining({
-        to: 'test@test.com',
-        subject: 'Password Reset Request',
-      }));
+      expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'test@test.com',
+          subject: 'Password Reset Request',
+        }),
+      );
     });
   });
 });

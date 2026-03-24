@@ -73,9 +73,13 @@ describe('HotelsScraperService', () => {
   describe('searchHotels', () => {
     it('should fall back to SerpAPI if Playwright fails', async () => {
       // Mock scrapeWithPlaywright to throw
-      jest.spyOn(service as any, 'scrapeWithPlaywright').mockRejectedValue(new Error('Scrape failed'));
-      mockSerpApiService.searchHotels.mockResolvedValue([{ name: 'Serp Hotel', latitude: 1, longitude: 2 }]);
-      
+      jest
+        .spyOn(service as any, 'scrapeWithPlaywright')
+        .mockRejectedValue(new Error('Scrape failed'));
+      mockSerpApiService.searchHotels.mockResolvedValue([
+        { name: 'Serp Hotel', latitude: 1, longitude: 2 },
+      ]);
+
       const result = await service.searchHotels({ location: 'Bangkok' });
       expect(result.length).toBe(1);
       expect(result[0].name).toBe('Serp Hotel');
@@ -83,32 +87,54 @@ describe('HotelsScraperService', () => {
     });
 
     it('should fall back to database if SerpAPI also fails', async () => {
-        jest.spyOn(service as any, 'scrapeWithPlaywright').mockRejectedValue(new Error('Scrape failed'));
-        mockSerpApiService.searchHotels.mockRejectedValue(new Error('SerpAPI failed'));
-        mockHotelsService.findByProvinceName.mockResolvedValue([{ name: 'DB Hotel', latitude: 1, longitude: 2 }]);
+      jest
+        .spyOn(service as any, 'scrapeWithPlaywright')
+        .mockRejectedValue(new Error('Scrape failed'));
+      mockSerpApiService.searchHotels.mockRejectedValue(
+        new Error('SerpAPI failed'),
+      );
+      mockHotelsService.findByProvinceName.mockResolvedValue([
+        { name: 'DB Hotel', latitude: 1, longitude: 2 },
+      ]);
 
-        const result = await service.searchHotels({ location: 'Bangkok' });
-        expect(result.length).toBe(1);
-        expect(result[0].name).toBe('DB Hotel');
+      const result = await service.searchHotels({ location: 'Bangkok' });
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('DB Hotel');
     });
 
     it('should return empty array if all fallbacks fail', async () => {
-        jest.spyOn(service as any, 'scrapeWithPlaywright').mockRejectedValue(new Error('Scrape failed'));
-        mockSerpApiService.searchHotels.mockRejectedValue(new Error('SerpAPI failed'));
-        mockHotelsService.findByProvinceName.mockRejectedValue(new Error('DB failed'));
+      jest
+        .spyOn(service as any, 'scrapeWithPlaywright')
+        .mockRejectedValue(new Error('Scrape failed'));
+      mockSerpApiService.searchHotels.mockRejectedValue(
+        new Error('SerpAPI failed'),
+      );
+      mockHotelsService.findByProvinceName.mockRejectedValue(
+        new Error('DB failed'),
+      );
 
-        const result = await service.searchHotels({ location: 'Bangkok' });
-        expect(result).toEqual([]);
+      const result = await service.searchHotels({ location: 'Bangkok' });
+      expect(result).toEqual([]);
     });
   });
 
   describe('upsertHotels', () => {
-      it('should call hotelsService.upsertHotel for each hotel', async () => {
-          const hotels = [
-              { name: 'H1', latitude: 1, longitude: 2, rating: 4, reviewCount: 10, prices: [], photos: [], imageUrls: [], url: '' },
-          ];
-          await (service as any).upsertHotels(hotels);
-          expect(mockHotelsService.upsertHotel).toHaveBeenCalled();
-      });
+    it('should call hotelsService.upsertHotel for each hotel', async () => {
+      const hotels = [
+        {
+          name: 'H1',
+          latitude: 1,
+          longitude: 2,
+          rating: 4,
+          reviewCount: 10,
+          prices: [],
+          photos: [],
+          imageUrls: [],
+          url: '',
+        },
+      ];
+      await (service as any).upsertHotels(hotels);
+      expect(mockHotelsService.upsertHotel).toHaveBeenCalled();
+    });
   });
 });

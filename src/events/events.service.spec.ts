@@ -51,13 +51,16 @@ describe('EventsService', () => {
       providers: [
         EventsService,
         { provide: getRepositoryToken(Event), useValue: mockEventsRepository },
-        { provide: getRepositoryToken(EventReview), useValue: mockReviewsRepository },
+        {
+          provide: getRepositoryToken(EventReview),
+          useValue: mockReviewsRepository,
+        },
       ],
     }).compile();
 
     service = module.get<EventsService>(EventsService);
     eventsRepository = module.get<Repository<Event>>(getRepositoryToken(Event));
-    
+
     jest.clearAllMocks();
   });
 
@@ -123,8 +126,8 @@ describe('EventsService', () => {
 
   describe('findByMonth', () => {
     it('should return events for a specific month', async () => {
-        const result = await service.findByMonth(2024, 5);
-        expect(result).toBeInstanceOf(Array);
+      const result = await service.findByMonth(2024, 5);
+      expect(result).toBeInstanceOf(Array);
     });
   });
 });

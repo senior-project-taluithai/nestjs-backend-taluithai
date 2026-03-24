@@ -37,7 +37,10 @@ describe('FavoritesController', () => {
     it('should call favoritesService.getFavoritePlaces', async () => {
       const req = { user: { id: 'user1' } };
       await controller.getFavoritePlaces(req, { page: 1, pageSize: 10 });
-      expect(service.getFavoritePlaces).toHaveBeenCalledWith('user1', { page: 1, pageSize: 10 });
+      expect(service.getFavoritePlaces).toHaveBeenCalledWith('user1', {
+        page: 1,
+        pageSize: 10,
+      });
     });
   });
 

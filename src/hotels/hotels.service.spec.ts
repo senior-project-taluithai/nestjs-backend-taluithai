@@ -50,8 +50,14 @@ describe('HotelsService', () => {
       providers: [
         HotelsService,
         { provide: getRepositoryToken(Hotel), useValue: mockHotelsRepository },
-        { provide: getRepositoryToken(HotelImage), useValue: mockHotelImagesRepository },
-        { provide: getRepositoryToken(Province), useValue: mockProvincesRepository },
+        {
+          provide: getRepositoryToken(HotelImage),
+          useValue: mockHotelImagesRepository,
+        },
+        {
+          provide: getRepositoryToken(Province),
+          useValue: mockProvincesRepository,
+        },
       ],
     }).compile();
 
@@ -85,23 +91,30 @@ describe('HotelsService', () => {
   describe('findByProvinceName', () => {
     it('should return hotels in a province', async () => {
       const province = { id: 1, name: 'Bangkok' };
-      mockProvincesRepository.createQueryBuilder().getOne.mockResolvedValue(province);
+      mockProvincesRepository
+        .createQueryBuilder()
+        .getOne.mockResolvedValue(province);
       mockHotelsRepository.find.mockResolvedValue([]);
-      
+
       const result = await service.findByProvinceName('Bangkok');
       expect(result).toBeInstanceOf(Array);
     });
 
     it('should return empty array if province not found', async () => {
-        mockProvincesRepository.createQueryBuilder().getOne.mockResolvedValue(null);
-        const result = await service.findByProvinceName('Unknown');
-        expect(result).toEqual([]);
+      mockProvincesRepository
+        .createQueryBuilder()
+        .getOne.mockResolvedValue(null);
+      const result = await service.findByProvinceName('Unknown');
+      expect(result).toEqual([]);
     });
   });
 
   describe('findNearby', () => {
     it('should return nearby hotels', async () => {
-      const result = await service.findNearby({ latitude: 13.7, longitude: 100.5 });
+      const result = await service.findNearby({
+        latitude: 13.7,
+        longitude: 100.5,
+      });
       expect(result).toBeInstanceOf(Array);
     });
   });
@@ -109,7 +122,9 @@ describe('HotelsService', () => {
   describe('upsertHotel', () => {
     it('should update existing hotel', async () => {
       const existing = { id: 1, name: 'Test' };
-      mockHotelsRepository.createQueryBuilder().getOne.mockResolvedValue(existing);
+      mockHotelsRepository
+        .createQueryBuilder()
+        .getOne.mockResolvedValue(existing);
       mockHotelsRepository.findOne.mockResolvedValue(existing);
 
       await service.upsertHotel({ name: 'Test', latitude: 13, longitude: 100 });
@@ -117,14 +132,14 @@ describe('HotelsService', () => {
     });
 
     it('should create new hotel if not exists', async () => {
-        mockHotelsRepository.createQueryBuilder().getOne.mockResolvedValue(null);
-        mockProvincesRepository.find.mockResolvedValue([]);
-        mockHotelsRepository.create.mockReturnValue({});
-        mockHotelsRepository.save.mockResolvedValue({ id: 2 });
-        mockHotelsRepository.findOne.mockResolvedValue({ id: 2 });
+      mockHotelsRepository.createQueryBuilder().getOne.mockResolvedValue(null);
+      mockProvincesRepository.find.mockResolvedValue([]);
+      mockHotelsRepository.create.mockReturnValue({});
+      mockHotelsRepository.save.mockResolvedValue({ id: 2 });
+      mockHotelsRepository.findOne.mockResolvedValue({ id: 2 });
 
-        await service.upsertHotel({ name: 'New', latitude: 13, longitude: 100 });
-        expect(mockHotelsRepository.save).toHaveBeenCalled();
+      await service.upsertHotel({ name: 'New', latitude: 13, longitude: 100 });
+      expect(mockHotelsRepository.save).toHaveBeenCalled();
     });
   });
 });

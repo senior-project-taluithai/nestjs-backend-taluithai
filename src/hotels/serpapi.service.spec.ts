@@ -8,8 +8,8 @@ describe('SerpApiService', () => {
 
   const mockConfigService = {
     get: jest.fn().mockImplementation((key: string) => {
-        if (key === 'SERPAPI_API_KEY') return 'test-api-key';
-        return null;
+      if (key === 'SERPAPI_API_KEY') return 'test-api-key';
+      return null;
     }),
   };
 
@@ -23,9 +23,9 @@ describe('SerpApiService', () => {
 
     service = module.get<SerpApiService>(SerpApiService);
     configService = module.get<ConfigService>(ConfigService);
-    
+
     jest.clearAllMocks();
-    
+
     // Mock global fetch
     global.fetch = jest.fn();
   });
@@ -58,28 +58,34 @@ describe('SerpApiService', () => {
     });
 
     it('should return empty array on fetch failure', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
-        const result = await service.searchHotels({ location: 'Bangkok' });
-        expect(result).toEqual([]);
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
+      const result = await service.searchHotels({ location: 'Bangkok' });
+      expect(result).toEqual([]);
     });
 
     it('should return empty array on exception', async () => {
-        (global.fetch as jest.Mock).mockRejectedValue(new Error('Fetch failed'));
-        const result = await service.searchHotels({ location: 'Bangkok' });
-        expect(result).toEqual([]);
+      (global.fetch as jest.Mock).mockRejectedValue(new Error('Fetch failed'));
+      const result = await service.searchHotels({ location: 'Bangkok' });
+      expect(result).toEqual([]);
     });
   });
 
   describe('mapSerpApiResults', () => {
-      it('should map results correctly', () => {
-          const data = {
-              properties: [
-                  { title: 'H1', address: 'A1', rating: 4, reviews: 50, coordinates: { latitude: 1, longitude: 2 } }
-              ]
-          };
-          const result = (service as any).mapSerpApiResults(data, 10);
-          expect(result[0].name).toBe('H1');
-          expect(result[0].latitude).toBe(1);
-      });
+    it('should map results correctly', () => {
+      const data = {
+        properties: [
+          {
+            title: 'H1',
+            address: 'A1',
+            rating: 4,
+            reviews: 50,
+            coordinates: { latitude: 1, longitude: 2 },
+          },
+        ],
+      };
+      const result = (service as any).mapSerpApiResults(data, 10);
+      expect(result[0].name).toBe('H1');
+      expect(result[0].latitude).toBe(1);
+    });
   });
 });

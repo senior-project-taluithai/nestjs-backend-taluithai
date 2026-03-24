@@ -38,8 +38,10 @@ describe('UsersService', () => {
 
     service = module.get<UsersService>(UsersService);
     userRepository = module.get<Repository<User>>(getRepositoryToken(User));
-    travelPreferenceRepository = module.get<Repository<TravelPreference>>(getRepositoryToken(TravelPreference));
-    
+    travelPreferenceRepository = module.get<Repository<TravelPreference>>(
+      getRepositoryToken(TravelPreference),
+    );
+
     jest.clearAllMocks();
   });
 
@@ -74,7 +76,10 @@ describe('UsersService', () => {
   describe('findOne', () => {
     it('should find a user by id', async () => {
       const id = '1';
-      mockUserRepository.findOne.mockResolvedValue({ id, email: 'test@example.com' });
+      mockUserRepository.findOne.mockResolvedValue({
+        id,
+        email: 'test@example.com',
+      });
 
       const result = await service.findOne(id);
       expect(userRepository.findOne).toHaveBeenCalledWith({ where: { id } });
@@ -85,10 +90,15 @@ describe('UsersService', () => {
   describe('findByResetToken', () => {
     it('should find a user by reset token', async () => {
       const token = 'token';
-      mockUserRepository.findOne.mockResolvedValue({ id: '1', resetToken: token });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: '1',
+        resetToken: token,
+      });
 
       const result = await service.findByResetToken(token);
-      expect(userRepository.findOne).toHaveBeenCalledWith({ where: { resetToken: token } });
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: { resetToken: token },
+      });
       expect(result.resetToken).toBe(token);
     });
   });
@@ -106,13 +116,18 @@ describe('UsersService', () => {
     it('should return travel preferences of a user', async () => {
       const userId = '1';
       const prefs = [{ id: 1, name: 'Adventure' }];
-      mockUserRepository.findOne.mockResolvedValue({ id: userId, travelPreferences: prefs });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: userId,
+        travelPreferences: prefs,
+      });
 
       const result = await service.getUserPreferences(userId);
-      expect(userRepository.findOne).toHaveBeenCalledWith(expect.objectContaining({
-        where: { id: userId },
-        relations: ['travelPreferences'],
-      }));
+      expect(userRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: userId },
+          relations: ['travelPreferences'],
+        }),
+      );
       expect(result).toEqual(prefs);
     });
 
@@ -132,7 +147,10 @@ describe('UsersService', () => {
 
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTravelPreferenceRepository.find.mockResolvedValue(prefs);
-      mockUserRepository.save.mockResolvedValue({ ...user, travelPreferences: prefs });
+      mockUserRepository.save.mockResolvedValue({
+        ...user,
+        travelPreferences: prefs,
+      });
 
       const result = await service.updateUserPreferences(userId, prefIds);
       expect(travelPreferenceRepository.find).toHaveBeenCalledWith({
@@ -163,11 +181,19 @@ describe('UsersService', () => {
   describe('updateRecommendationPreferences', () => {
     it('should update and return recommendation preferences', async () => {
       const userId = '1';
-      const user = { id: userId, preferredCategoryIds: [], preferredRegions: [] };
+      const user = {
+        id: userId,
+        preferredCategoryIds: [],
+        preferredRegions: [],
+      };
       mockUserRepository.findOne.mockResolvedValue(user);
       mockUserRepository.save.mockResolvedValue(user);
 
-      const result = await service.updateRecommendationPreferences(userId, [1], ['North ']);
+      const result = await service.updateRecommendationPreferences(
+        userId,
+        [1],
+        ['North '],
+      );
       expect(result.preferredCategoryIds).toEqual([1]);
       expect(result.preferredRegions).toEqual(['North']);
       expect(userRepository.save).toHaveBeenCalled();

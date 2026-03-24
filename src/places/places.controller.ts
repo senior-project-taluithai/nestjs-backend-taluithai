@@ -225,6 +225,7 @@ export class PlacesController {
     const videos = await this.tiktokService.getVideosForPlace(
       place.id,
       place.name,
+      place.nameEn,
     );
     return { videos };
   }

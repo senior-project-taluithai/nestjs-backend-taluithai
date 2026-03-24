@@ -73,22 +73,22 @@ describe('AgentService', () => {
 
   describe('getThread', () => {
     it('should return null if thread not found', () => {
-        expect(service.getThread('non-existent')).toBeNull();
+      expect(service.getThread('non-existent')).toBeNull();
     });
 
     it('should return thread if exists', () => {
-        const thread = service.createThread('user1');
-        const result = service.getThread(thread.thread_id);
-        expect(result).toEqual(thread);
+      const thread = service.createThread('user1');
+      const result = service.getThread(thread.thread_id);
+      expect(result).toEqual(thread);
     });
   });
 
   describe('getThreadState', () => {
     it('should return thread state if exists', () => {
-        const thread = service.createThread('user1');
-        const state = service.getThreadState(thread.thread_id);
-        expect(state).toBeDefined();
-        expect(state?.metadata.userId).toBe('user1');
+      const thread = service.createThread('user1');
+      const state = service.getThreadState(thread.thread_id);
+      expect(state).toBeDefined();
+      expect(state?.metadata.userId).toBe('user1');
     });
   });
 });

@@ -15,12 +15,12 @@ describe('TravelPreferencesController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TravelPreferencesController],
-      providers: [
-        { provide: TravelPreferencesService, useValue: mockService },
-      ],
+      providers: [{ provide: TravelPreferencesService, useValue: mockService }],
     }).compile();
 
-    controller = module.get<TravelPreferencesController>(TravelPreferencesController);
+    controller = module.get<TravelPreferencesController>(
+      TravelPreferencesController,
+    );
     service = module.get<TravelPreferencesService>(TravelPreferencesService);
 
     jest.clearAllMocks();

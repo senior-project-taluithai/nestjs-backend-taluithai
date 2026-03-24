@@ -17,8 +17,10 @@ async function bootstrap() {
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, etc.)
       if (!origin) return callback(null, true);
-      // Allow configured frontend URL
-      if (origin === frontendUrl) return callback(null, true);
+      // Allow configured frontend URL (ignoring trailing slashes)
+      const cleanOrigin = origin.replace(/\/$/, '');
+      const cleanFrontendUrl = frontendUrl.replace(/\/$/, '');
+      if (cleanOrigin === cleanFrontendUrl) return callback(null, true);
       // Allow any localhost/127.0.0.1 in development
       if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
         return callback(null, true);
@@ -46,7 +48,7 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, document);
 
   const port = configService.get<number>('PORT') || 8000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   console.log(`Application is running on: ${await app.getUrl()}`);
   console.log(`Swagger is running on: ${await app.getUrl()}/api`);
 }

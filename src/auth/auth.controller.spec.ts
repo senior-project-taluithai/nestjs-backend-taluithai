@@ -20,14 +20,12 @@ describe('AuthController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [
-        { provide: AuthService, useValue: mockAuthService },
-      ],
+      providers: [{ provide: AuthService, useValue: mockAuthService }],
     }).compile();
 
     controller = module.get<AuthController>(AuthController);
     service = module.get<AuthService>(AuthService);
-    
+
     jest.clearAllMocks();
   });
 
@@ -39,7 +37,7 @@ describe('AuthController', () => {
     it('should call authService.register', async () => {
       const dto = { email: 'test@example.com', password: 'password' };
       mockAuthService.register.mockResolvedValue({ id: '1', ...dto });
-      
+
       const result = await controller.register(dto);
       expect(service.register).toHaveBeenCalledWith(dto);
       expect(result.id).toBe('1');
@@ -50,9 +48,13 @@ describe('AuthController', () => {
     it('should throw UnauthorizedException for invalid credentials', async () => {
       mockAuthService.validateUser.mockResolvedValue(null);
       const res = { cookie: jest.fn() } as unknown as Response;
-      
-      await expect(controller.login({ email: 'test@example.com', password: 'password' }, res))
-        .rejects.toThrow(UnauthorizedException);
+
+      await expect(
+        controller.login(
+          { email: 'test@example.com', password: 'password' },
+          res,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should set cookie and return success message for valid credentials', async () => {
@@ -61,9 +63,16 @@ describe('AuthController', () => {
       mockAuthService.login.mockResolvedValue({ access_token: 'token' });
       const res = { cookie: jest.fn() } as unknown as Response;
 
-      const result = await controller.login({ email: 'test@example.com', password: 'password' }, res);
-      
-      expect(res.cookie).toHaveBeenCalledWith('Authentication', 'token', expect.any(Object));
+      const result = await controller.login(
+        { email: 'test@example.com', password: 'password' },
+        res,
+      );
+
+      expect(res.cookie).toHaveBeenCalledWith(
+        'Authentication',
+        'token',
+        expect.any(Object),
+      );
       expect(result).toEqual({ message: 'Login successful', user });
     });
   });
@@ -72,7 +81,7 @@ describe('AuthController', () => {
     it('should clear authentication cookie', async () => {
       const res = { clearCookie: jest.fn() } as unknown as Response;
       const result = await controller.logout(res);
-      
+
       expect(res.clearCookie).toHaveBeenCalledWith('Authentication');
       expect(result).toEqual({ message: 'Logout successful' });
     });
@@ -89,8 +98,10 @@ describe('AuthController', () => {
   describe('forgotPassword', () => {
     it('should call authService.forgotPassword and return message', async () => {
       mockAuthService.forgotPassword.mockResolvedValue('token');
-      const result = await controller.forgotPassword({ email: 'test@example.com' });
-      
+      const result = await controller.forgotPassword({
+        email: 'test@example.com',
+      });
+
       expect(service.forgotPassword).toHaveBeenCalledWith('test@example.com');
       expect(result).toEqual({ message: 'If user exists, email sent' });
     });
@@ -98,9 +109,15 @@ describe('AuthController', () => {
 
   describe('resetPassword', () => {
     it('should call authService.resetPassword and return message', async () => {
-      const result = await controller.resetPassword({ token: 'token', newPassword: 'newPassword' });
-      
-      expect(service.resetPassword).toHaveBeenCalledWith('token', 'newPassword');
+      const result = await controller.resetPassword({
+        token: 'token',
+        newPassword: 'newPassword',
+      });
+
+      expect(service.resetPassword).toHaveBeenCalledWith(
+        'token',
+        'newPassword',
+      );
       expect(result).toEqual({ message: 'Password has been reset' });
     });
   });
@@ -110,7 +127,7 @@ describe('AuthController', () => {
       const req = { user: { id: '1' } };
       const dto = { oldPassword: 'old', newPassword: 'new' };
       mockAuthService.changePassword.mockResolvedValue({ message: 'success' });
-      
+
       const result = await controller.changePassword(req, dto);
       expect(service.changePassword).toHaveBeenCalledWith('1', 'old', 'new');
       expect(result).toEqual({ message: 'success' });

@@ -29,7 +29,10 @@ describe('ChatService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChatService,
-        { provide: getRepositoryToken(ChatConversation), useValue: mockConversationRepo },
+        {
+          provide: getRepositoryToken(ChatConversation),
+          useValue: mockConversationRepo,
+        },
         { provide: getRepositoryToken(ChatMessage), useValue: mockMessageRepo },
       ],
     }).compile();
@@ -44,7 +47,11 @@ describe('ChatService', () => {
 
   describe('createConversation', () => {
     it('should create and save a conversation', async () => {
-      const result = await service.createConversation('user1', 'thread1', 'Title');
+      const result = await service.createConversation(
+        'user1',
+        'thread1',
+        'Title',
+      );
       expect(result.id).toBe('1');
       expect(mockConversationRepo.save).toHaveBeenCalled();
     });
@@ -60,14 +67,16 @@ describe('ChatService', () => {
   describe('getConversation', () => {
     it('should throw NotFoundException if conversation not found', async () => {
       mockConversationRepo.findOne.mockResolvedValue(null);
-      await expect(service.getConversation('1', 'user1')).rejects.toThrow(NotFoundException);
+      await expect(service.getConversation('1', 'user1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should return a conversation', async () => {
-        const conv = { id: '1', userId: 'user1' };
-        mockConversationRepo.findOne.mockResolvedValue(conv);
-        const result = await service.getConversation('1', 'user1');
-        expect(result).toEqual(conv);
+      const conv = { id: '1', userId: 'user1' };
+      mockConversationRepo.findOne.mockResolvedValue(conv);
+      const result = await service.getConversation('1', 'user1');
+      expect(result).toEqual(conv);
     });
   });
 
@@ -75,7 +84,12 @@ describe('ChatService', () => {
     it('should add a message and update conversation', async () => {
       mockConversationRepo.findOne.mockResolvedValue({ id: '1' });
       mockMessageRepo.save.mockResolvedValue({ id: 'msg1' });
-      const result = await service.addMessage('1', 'user1', MessageRole.USER, 'Hello');
+      const result = await service.addMessage(
+        '1',
+        'user1',
+        MessageRole.USER,
+        'Hello',
+      );
       expect(mockMessageRepo.save).toHaveBeenCalled();
       expect(mockConversationRepo.save).toHaveBeenCalled();
     });
