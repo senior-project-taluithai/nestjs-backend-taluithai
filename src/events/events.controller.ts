@@ -24,11 +24,15 @@ import { EventFilterDto } from './dto/event-filter.dto';
 import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { EventReviewDto } from '../reviews/dto/review.dto';
+import { TiktokService } from '../tiktok/tiktok.service';
 
 @ApiTags('Events')
 @Controller('events')
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly tiktokService: TiktokService,
+  ) {}
 
   @Get('recommended')
   @UseInterceptors(ClassSerializerInterceptor)
@@ -164,6 +168,20 @@ export class EventsController {
           imageUrls: e.images?.map((i) => i.url) || [],
         }),
     );
+  }
+
+  @Get(':id/tiktok-videos')
+  @ApiOperation({ summary: 'Get TikTok videos for an event' })
+  @ApiResponse({ status: 200, description: 'Return TikTok video URLs.' })
+  async getTiktokVideos(@Param('id') id: string) {
+    const event = await this.eventsService.findOne(+id);
+    if (!event) return { videos: [] };
+    const videos = await this.tiktokService.getVideosForEvent(
+      event.id,
+      event.name,
+      event.nameEn,
+    );
+    return { videos };
   }
 
   @Get(':id')

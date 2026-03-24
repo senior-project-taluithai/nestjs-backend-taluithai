@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TiktokService } from './tiktok.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { TiktokPlaceVideo } from './entities/tiktok-place-video.entity';
+import { TiktokEventVideo } from './entities/tiktok-event-video.entity';
 
 // Mock apify-client
 const mockListItems = jest.fn().mockResolvedValue({
@@ -33,7 +34,14 @@ jest.mock('apify-client', () => ({
 describe('TiktokService', () => {
   let service: TiktokService;
 
-  const mockRepository = {
+  const mockPlaceRepo = {
+    find: jest.fn(),
+    delete: jest.fn(),
+    create: jest.fn().mockReturnValue({}),
+    save: jest.fn().mockResolvedValue([]),
+  };
+
+  const mockEventRepo = {
     find: jest.fn(),
     delete: jest.fn(),
     create: jest.fn().mockReturnValue({}),
@@ -49,7 +57,11 @@ describe('TiktokService', () => {
         TiktokService,
         {
           provide: getRepositoryToken(TiktokPlaceVideo),
-          useValue: mockRepository,
+          useValue: mockPlaceRepo,
+        },
+        {
+          provide: getRepositoryToken(TiktokEventVideo),
+          useValue: mockEventRepo,
         },
       ],
     }).compile();
@@ -69,16 +81,16 @@ describe('TiktokService', () => {
 
   describe('getVideosForPlace', () => {
     it('should return cached videos if present and fresh', async () => {
-      mockRepository.find.mockResolvedValue([
+      mockPlaceRepo.find.mockResolvedValue([
         { videoUrl: 'url1', cachedAt: new Date() },
       ]);
       const result = await service.getVideosForPlace(1, 'Place');
       expect(result).toEqual(['url1']);
-      expect(mockRepository.find).toHaveBeenCalled();
+      expect(mockPlaceRepo.find).toHaveBeenCalled();
     });
 
     it('should search via Apify if no cache', async () => {
-      mockRepository.find.mockResolvedValue([]);
+      mockPlaceRepo.find.mockResolvedValue([]);
       const result = await service.getVideosForPlace(1, 'Place');
       expect(result).toContain(
         'https://www.tiktok.com/@user1/video/7123456789',
@@ -86,13 +98,46 @@ describe('TiktokService', () => {
       expect(result).toContain(
         'https://www.tiktok.com/@user2/video/7987654321',
       );
-      expect(mockRepository.save).toHaveBeenCalled();
+      expect(mockPlaceRepo.save).toHaveBeenCalled();
     });
 
     it('should rotate between tokens on successive calls', async () => {
-      mockRepository.find.mockResolvedValue([]);
+      mockPlaceRepo.find.mockResolvedValue([]);
       await service.getVideosForPlace(1, 'Place1');
       await service.getVideosForPlace(2, 'Place2');
+      expect(mockCall).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getVideosForEvent', () => {
+    it('should return cached videos if present and fresh', async () => {
+      mockEventRepo.find.mockResolvedValue([
+        { videoUrl: 'url1', cachedAt: new Date() },
+      ]);
+      const result = await service.getVideosForEvent(1, 'Event');
+      expect(result).toEqual(['url1']);
+      expect(mockEventRepo.find).toHaveBeenCalled();
+    });
+
+    it('should search via Apify if no cache', async () => {
+      mockEventRepo.find.mockResolvedValue([]);
+      const result = await service.getVideosForEvent(1, 'Event');
+      expect(result).toContain(
+        'https://www.tiktok.com/@user1/video/7123456789',
+      );
+      expect(result).toContain(
+        'https://www.tiktok.com/@user2/video/7987654321',
+      );
+      expect(mockEventRepo.save).toHaveBeenCalled();
+    });
+
+    it('should try English name if Thai name returns no results', async () => {
+      mockEventRepo.find.mockResolvedValue([]);
+      mockListItems.mockResolvedValueOnce({ items: [] });
+      mockListItems.mockResolvedValueOnce({
+        items: [{ webVideoUrl: 'https://www.tiktok.com/@user/video/1' }],
+      });
+      await service.getVideosForEvent(1, 'งานวัด', 'Temple Fair');
       expect(mockCall).toHaveBeenCalledTimes(2);
     });
   });
