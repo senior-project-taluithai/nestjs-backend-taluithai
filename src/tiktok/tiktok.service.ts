@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ApifyClient } from 'apify-client';
 
 import { TiktokPlaceVideo } from './entities/tiktok-place-video.entity';
+import { TiktokEventVideo } from './entities/tiktok-event-video.entity';
 
 const CACHE_DAYS = 7;
 const MAX_VIDEOS = 6;
@@ -17,7 +18,9 @@ export class TiktokService {
 
   constructor(
     @InjectRepository(TiktokPlaceVideo)
-    private readonly tiktokRepo: Repository<TiktokPlaceVideo>,
+    private readonly tiktokPlaceRepo: Repository<TiktokPlaceVideo>,
+    @InjectRepository(TiktokEventVideo)
+    private readonly tiktokEventRepo: Repository<TiktokEventVideo>,
   ) {
     const token1 = process.env.APIFY_API_TOKEN1;
     const token2 = process.env.APIFY_API_TOKEN2;
@@ -51,11 +54,10 @@ export class TiktokService {
     placeName: string,
     placeNameEn?: string,
   ): Promise<string[]> {
-    // Check cache first
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - CACHE_DAYS);
 
-    const cached = await this.tiktokRepo.find({
+    const cached = await this.tiktokPlaceRepo.find({
       where: { placeId },
       order: { cachedAt: 'DESC' },
       take: MAX_VIDEOS,
@@ -67,10 +69,8 @@ export class TiktokService {
       return cached.map((v) => v.videoUrl);
     }
 
-    // Search using Apify TikTok scraper
     let urls = await this.searchVideoUrls(placeName);
 
-    // Try English name if Thai name returns 0 results
     if (urls.length === 0 && placeNameEn && placeNameEn !== placeName) {
       this.logger.log(
         `No results for ${placeName}, trying English name: ${placeNameEn}`,
@@ -78,19 +78,17 @@ export class TiktokService {
       urls = await this.searchVideoUrls(placeNameEn);
     }
 
-    // If we found new URLs, update the cache
     if (urls.length > 0) {
-      await this.tiktokRepo.delete({ placeId });
+      await this.tiktokPlaceRepo.delete({ placeId });
 
       const entities = urls.map((url) =>
-        this.tiktokRepo.create({ placeId, videoUrl: url }),
+        this.tiktokPlaceRepo.create({ placeId, videoUrl: url }),
       );
-      await this.tiktokRepo.save(entities);
+      await this.tiktokPlaceRepo.save(entities);
 
       return urls;
     }
 
-    // If search failed or returned 0, fallback to stale cache
     if (cached.length > 0) {
       this.logger.log(`Search failed for ${placeName}, using stale cache`);
       return cached.map((v) => v.videoUrl);
@@ -99,10 +97,54 @@ export class TiktokService {
     return [];
   }
 
-  /**
-   * Search TikTok videos via Apify's TikTok scraper actor.
-   * Uses a search URL to find videos relevant to the query.
-   */
+  async getVideosForEvent(
+    eventId: number,
+    eventName: string,
+    eventNameEn?: string,
+  ): Promise<string[]> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - CACHE_DAYS);
+
+    const cached = await this.tiktokEventRepo.find({
+      where: { eventId },
+      order: { cachedAt: 'DESC' },
+      take: MAX_VIDEOS,
+    });
+
+    const isFresh = cached.length > 0 && cached[0].cachedAt > cutoff;
+
+    if (isFresh) {
+      return cached.map((v) => v.videoUrl);
+    }
+
+    let urls = await this.searchVideoUrls(eventName);
+
+    if (urls.length === 0 && eventNameEn && eventNameEn !== eventName) {
+      this.logger.log(
+        `No results for ${eventName}, trying English name: ${eventNameEn}`,
+      );
+      urls = await this.searchVideoUrls(eventNameEn);
+    }
+
+    if (urls.length > 0) {
+      await this.tiktokEventRepo.delete({ eventId });
+
+      const entities = urls.map((url) =>
+        this.tiktokEventRepo.create({ eventId, videoUrl: url }),
+      );
+      await this.tiktokEventRepo.save(entities);
+
+      return urls;
+    }
+
+    if (cached.length > 0) {
+      this.logger.log(`Search failed for ${eventName}, using stale cache`);
+      return cached.map((v) => v.videoUrl);
+    }
+
+    return [];
+  }
+
   private async searchVideoUrls(query: string): Promise<string[]> {
     try {
       const apifyClient = this.getNextClient();
@@ -131,8 +173,8 @@ export class TiktokService {
           shouldDownloadSlideshowImages: false,
         },
         {
-          timeout: 120, // seconds
-          memory: 256, // MB
+          timeout: 120,
+          memory: 256,
         },
       );
 
@@ -151,7 +193,7 @@ export class TiktokService {
 
         if (webVideoUrl && !seen.has(webVideoUrl)) {
           seen.add(webVideoUrl);
-          urls.push(webVideoUrl.split('?')[0]); // strip query params
+          urls.push(webVideoUrl.split('?')[0]);
           if (urls.length >= MAX_VIDEOS) break;
         }
       }
