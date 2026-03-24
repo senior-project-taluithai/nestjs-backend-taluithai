@@ -50,3 +50,5 @@ AGENTS.md
 CLAUDE.md
 
 eval/node_modules
+
+env.yaml
