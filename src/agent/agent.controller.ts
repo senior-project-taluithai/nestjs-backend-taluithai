@@ -95,7 +95,18 @@ export class AgentController {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
+    const socket = (
+      res as Response & {
+        socket?: { setNoDelay?: (noDelay?: boolean) => void };
+      }
+    ).socket;
+    if (socket && typeof socket.setNoDelay === 'function') {
+      socket.setNoDelay(true);
+    }
+
     const flush = (res as Response & { flush?: () => void }).flush;
+    // SSE padding helps some proxies flush early chunks immediately.
+    res.write(`:${' '.repeat(2048)}\n\n`);
     res.write(': connected\n\n');
     if (typeof flush === 'function') {
       flush.call(res);
