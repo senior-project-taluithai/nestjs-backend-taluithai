@@ -90,10 +90,18 @@ export class AgentController {
     );
 
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
+
+    const flush = (res as Response & { flush?: () => void }).flush;
+    const heartbeat = setInterval(() => {
+      res.write(': ping\n\n');
+      if (typeof flush === 'function') {
+        flush.call(res);
+      }
+    }, 15000);
 
     try {
       const config = {
@@ -111,12 +119,20 @@ export class AgentController {
 
       for await (const chunk of stream) {
         res.write(chunk);
+        if (typeof flush === 'function') {
+          flush.call(res);
+        }
       }
     } catch (error) {
       this.logger.error(`Stream error: ${(error as Error).message}`);
       res.write(
         `event: error\ndata: ${JSON.stringify({ message: (error as Error).message })}\n\n`,
       );
+      if (typeof flush === 'function') {
+        flush.call(res);
+      }
+    } finally {
+      clearInterval(heartbeat);
     }
 
     res.end();
