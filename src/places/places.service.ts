@@ -1133,6 +1133,59 @@ export class PlacesService {
       .getMany();
   }
 
+  async findInBounds(params: {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+    provinceIds?: number[];
+    categoryId?: number;
+    minRating?: number;
+    search?: string;
+  }): Promise<{ places: Place[]; totalCount: number }> {
+    const { north, south, east, west, provinceIds, categoryId, minRating, search } = params;
+
+    const query = this.placesRepository
+      .createQueryBuilder('place')
+      .leftJoinAndSelect('place.province', 'province')
+      .leftJoinAndSelect('place.images', 'images')
+      .leftJoinAndSelect('place.placeCategories', 'placeCategories')
+      .leftJoinAndSelect('placeCategories.category', 'category')
+      .where('place.latitude BETWEEN :south AND :north', { south, north })
+      .andWhere('place.longitude BETWEEN :west AND :east', { west, east });
+
+    if (provinceIds && provinceIds.length > 0) {
+      query.andWhere('place.provinceId IN (:...provinceIds)', { provinceIds });
+    }
+
+    if (categoryId) {
+      query.andWhere('category.id = :categoryId', { categoryId });
+    }
+
+    if (minRating) {
+      query.andWhere('place.rating >= :minRating', { minRating });
+    }
+
+    if (search) {
+      query.andWhere(
+        '(LOWER(place.name) LIKE LOWER(:search) OR LOWER(place.nameEn) LIKE LOWER(:search))',
+        { search: `%${search}%` },
+      );
+    }
+
+    query
+      .orderBy('place.rating', 'DESC')
+      .addOrderBy('place.userRatingCount', 'DESC')
+      .limit(500);
+
+    const places = await query.getMany();
+
+    return {
+      places,
+      totalCount: places.length,
+    };
+  }
+
   async createReview(
     placeId: number,
     userId: string,

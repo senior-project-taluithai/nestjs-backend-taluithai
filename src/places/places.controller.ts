@@ -29,6 +29,7 @@ import { UsersService } from '../users/users.service';
 import { InteractionsService } from '../interactions/interactions.service';
 import { TiktokService } from '../tiktok/tiktok.service';
 import { PlaceReviewDto } from '../reviews/dto/review.dto';
+import { MapQueryDto } from '../common/dto/map-query.dto';
 
 @ApiTags('Places')
 @Controller('places')
@@ -139,6 +140,42 @@ export class PlacesController {
       total,
       avgRating,
       totalReviews,
+    };
+  }
+
+  @Get('map')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get places within map bounds for viewport rendering' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return places within the specified geographic bounds.',
+    type: Object,
+  })
+  async getPlacesForMap(@Query() query: MapQueryDto) {
+    const { places, totalCount } = await this.placesService.findInBounds({
+      north: parseFloat(query.north),
+      south: parseFloat(query.south),
+      east: parseFloat(query.east),
+      west: parseFloat(query.west),
+      provinceIds: query.province_ids
+        ? query.province_ids.split(',').map(Number).filter((n) => !isNaN(n))
+        : undefined,
+      categoryId: query.category_id ? Number(query.category_id) : undefined,
+      minRating: query.min_rating ? Number(query.min_rating) : undefined,
+      search: query.search,
+    });
+
+    return {
+      places: places.map(
+        (place: any) =>
+          new PlaceDto({
+            ...place,
+            categories:
+              place.placeCategories?.map((pc: any) => pc.category.nameEn) || [],
+            imageUrls: place.images?.map((i: any) => i.url) || [],
+          }),
+      ),
+      totalCount,
     };
   }
 
