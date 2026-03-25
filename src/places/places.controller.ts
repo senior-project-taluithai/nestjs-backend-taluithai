@@ -179,6 +179,28 @@ export class PlacesController {
     };
   }
 
+  @Get('map/summary')
+  @ApiOperation({ summary: 'Get place counts grouped by province for map overview' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return place counts per province.',
+  })
+  async getPlacesMapSummary(
+    @Query('province_ids') provinceIds?: string,
+    @Query('category_id') categoryId?: string,
+    @Query('min_rating') minRating?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.placesService.getProvinceCounts({
+      provinceIds: provinceIds
+        ? provinceIds.split(',').map(Number).filter((n) => !isNaN(n))
+        : undefined,
+      categoryId: categoryId ? Number(categoryId) : undefined,
+      minRating: minRating ? Number(minRating) : undefined,
+      search,
+    });
+  }
+
   @Get('popular')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get popular places' })

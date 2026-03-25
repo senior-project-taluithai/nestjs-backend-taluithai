@@ -300,6 +300,51 @@ export class EventsService {
     };
   }
 
+  async getProvinceCounts(params?: {
+    provinceIds?: number[];
+    categoryId?: number;
+    minRating?: number;
+    search?: string;
+  }): Promise<{ provinces: { province_id: number; count: number }[]; totalCount: number }> {
+    const query = this.eventsRepository
+      .createQueryBuilder('event')
+      .select('event.provinceId', 'province_id')
+      .addSelect('COUNT(*)', 'count');
+
+    if (params?.provinceIds && params.provinceIds.length > 0) {
+      query.where('event.provinceId IN (:...provinceIds)', { provinceIds: params.provinceIds });
+    }
+
+    if (params?.categoryId) {
+      query.andWhere(
+        'event.id IN (SELECT ec.eventId FROM event_categories ec WHERE ec.categoryId = :categoryId)',
+        { categoryId: params.categoryId },
+      );
+    }
+
+    if (params?.minRating) {
+      query.andWhere('event.rating >= :minRating', { minRating: params.minRating });
+    }
+
+    if (params?.search) {
+      query.andWhere(
+        '(LOWER(event.name) LIKE LOWER(:search) OR LOWER(event.nameEn) LIKE LOWER(:search))',
+        { search: `%${params.search}%` },
+      );
+    }
+
+    const result = await query.groupBy('event.provinceId').getRawMany();
+
+    const provinces = result.map((r) => ({
+      province_id: parseInt(r.province_id, 10),
+      count: parseInt(r.count, 10),
+    }));
+
+    const totalCount = provinces.reduce((sum, p) => sum + p.count, 0);
+
+    return { provinces, totalCount };
+  }
+
   async createReview(
     eventId: number,
     userId: string,

@@ -123,6 +123,28 @@ export class EventsController {
     };
   }
 
+  @Get('map/summary')
+  @ApiOperation({ summary: 'Get event counts grouped by province for map overview' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return event counts per province.',
+  })
+  async getEventsMapSummary(
+    @Query('province_ids') provinceIds?: string,
+    @Query('category_id') categoryId?: string,
+    @Query('min_rating') minRating?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.eventsService.getProvinceCounts({
+      provinceIds: provinceIds
+        ? provinceIds.split(',').map(Number).filter((n) => !isNaN(n))
+        : undefined,
+      categoryId: categoryId ? Number(categoryId) : undefined,
+      minRating: minRating ? Number(minRating) : undefined,
+      search,
+    });
+  }
+
   @Get('upcoming')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Get upcoming events' })
