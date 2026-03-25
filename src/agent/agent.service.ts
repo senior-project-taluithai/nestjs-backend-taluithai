@@ -33,6 +33,7 @@ import { randomUUID } from 'crypto';
 import { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { compactMessagesIfNeeded } from './utils/context-manager';
 import { TripJson, BudgetJson, HotelJson } from './state';
+import { progressEventsBus, ProgressEvent } from './progress-events';
 
 // Phase 1.2: Lower recursion limits to prevent runaway loops
 const DEFAULT_RECURSION_LIMIT = 25;
@@ -244,6 +245,7 @@ export class AgentService implements OnModuleInit {
       : [];
 
     const runId = randomUUID();
+    const progressChannelId = `${threadId}:${runId}`;
 
     // Emit metadata event
     yield this.formatSSE('metadata', { run_id: runId });
@@ -370,19 +372,122 @@ export class AgentService implements OnModuleInit {
       const eventStream = this.graph.streamEvents(graphInput, {
         version: 'v2',
         recursionLimit,
-        configurable: { thread_id: threadId, ...streamConfig },
+        configurable: {
+          thread_id: threadId,
+          progress_channel_id: progressChannelId,
+          ...streamConfig,
+        },
       });
 
-      for await (const event of eventStream) {
-        yield this.formatEventSSE(event);
+      const graphIterator = eventStream[Symbol.asyncIterator]();
+      const progressIterator = progressEventsBus
+        .subscribe(progressChannelId)
+        [Symbol.asyncIterator]();
 
-        if (event.event === 'on_chain_end' && event.data?.output) {
-          const output = event.data.output as Record<string, unknown>;
-          if (output && Array.isArray(output.messages)) {
-            lastState = output;
+      let graphDone = false;
+      let progressDone = false;
+
+      let graphNext: Promise<IteratorResult<Record<string, unknown>>> | null =
+        graphIterator.next();
+      let progressNext: Promise<IteratorResult<ProgressEvent>> | null =
+        progressIterator.next();
+
+      while (!graphDone || !progressDone) {
+        const pending: Array<
+          Promise<{
+            source: 'graph' | 'progress';
+            result:
+              | IteratorResult<Record<string, unknown>>
+              | IteratorResult<ProgressEvent>;
+          }>
+        > = [];
+
+        if (!graphDone && graphNext) {
+          pending.push(
+            graphNext.then((result) => ({
+              source: 'graph' as const,
+              result,
+            })),
+          );
+        }
+
+        if (!progressDone && progressNext) {
+          pending.push(
+            progressNext.then((result) => ({
+              source: 'progress' as const,
+              result,
+            })),
+          );
+        }
+
+        if (pending.length === 0) {
+          break;
+        }
+
+        const settled = await Promise.race(pending);
+
+        if (settled.source === 'graph') {
+          const result = settled.result as IteratorResult<
+            Record<string, unknown>
+          >;
+          if (result.done) {
+            graphDone = true;
+            graphNext = null;
+            progressEventsBus.close(progressChannelId);
+            continue;
           }
+
+          graphNext = graphIterator.next();
+
+          const event = result.value;
+          yield this.formatEventSSE(event);
+
+          const eventData =
+            event.data && typeof event.data === 'object'
+              ? (event.data as Record<string, unknown>)
+              : null;
+          const output = eventData?.output as
+            | Record<string, unknown>
+            | undefined;
+
+          if (event.event === 'on_chain_end' && output) {
+            if (output && Array.isArray(output.messages)) {
+              lastState = output;
+            }
+          }
+
+          continue;
+        }
+
+        const progressResult = settled.result as IteratorResult<ProgressEvent>;
+        if (progressResult.done) {
+          progressDone = true;
+          progressNext = null;
+          continue;
+        }
+
+        progressNext = progressIterator.next();
+        const progressEvent = progressResult.value;
+
+        if (progressEvent.type === 'tool_start') {
+          yield this.formatSSE('tool_start', {
+            name: progressEvent.name,
+            runId: progressEvent.runId,
+            input: progressEvent.input ?? {},
+          });
+          continue;
+        }
+
+        if (progressEvent.type === 'tool_end') {
+          yield this.formatSSE('tool_end', {
+            name: progressEvent.name,
+            runId: progressEvent.runId,
+            output: progressEvent.output ?? null,
+          });
         }
       }
+
+      progressEventsBus.close(progressChannelId);
 
       // Fallback: if on_chain_end didn't capture state, retrieve from checkpointer
       if (
@@ -431,6 +536,7 @@ export class AgentService implements OnModuleInit {
         thread.updated_at = new Date().toISOString();
       }
     } catch (error) {
+      progressEventsBus.close(progressChannelId);
       const err = error as Error;
       const isRecursionError = this.isGraphRecursionError(error);
 
