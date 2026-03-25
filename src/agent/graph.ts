@@ -1259,9 +1259,14 @@ function getProgressChannelId(config: unknown): string {
 
 function emitProgressEvent(
   config: unknown,
-  type: 'tool_start' | 'tool_end',
+  type: 'tool_start' | 'tool_end' | 'progress',
   name: string,
-  payload?: { input?: Record<string, unknown>; output?: unknown },
+  payload?: {
+    input?: Record<string, unknown>;
+    output?: unknown;
+    status?: 'started' | 'in_progress' | 'completed' | 'error' | 'skipped';
+    message?: string;
+  },
 ): void {
   const channelId = getProgressChannelId(config);
   if (!channelId) return;
@@ -1272,7 +1277,34 @@ function emitProgressEvent(
     runId: getStageRunId(channelId, name),
     input: payload?.input,
     output: payload?.output,
+    status: payload?.status,
+    message: payload?.message,
+    timestamp: Date.now(),
   });
+}
+
+function startStageProgressTicker(
+  config: unknown,
+  name: string,
+  message: string,
+): { stop: () => void } {
+  emitProgressEvent(config, 'progress', name, {
+    status: 'started',
+    message,
+  });
+
+  let elapsedSeconds = 0;
+  const interval = setInterval(() => {
+    elapsedSeconds += 2;
+    emitProgressEvent(config, 'progress', name, {
+      status: 'in_progress',
+      message: `${message} (${elapsedSeconds}s)`,
+    });
+  }, 2000);
+
+  return {
+    stop: () => clearInterval(interval),
+  };
 }
 
 function detectIntent(text: string, context?: IntentContext): Intent {
@@ -1827,13 +1859,29 @@ export function buildTravelAgentGraph(
 
       const runTripPlannerStep = async () => {
         emitProgressEvent(config, 'tool_start', 'trip_planner');
+        const ticker = startStageProgressTicker(
+          config,
+          'trip_planner',
+          'Planning itinerary',
+        );
         try {
           const result = await compiledTripPlanner.invoke({ messages });
+          ticker.stop();
+          emitProgressEvent(config, 'progress', 'trip_planner', {
+            status: 'completed',
+            message: 'Itinerary planned',
+          });
           emitProgressEvent(config, 'tool_end', 'trip_planner', {
             output: { status: 'completed' },
           });
           return result;
         } catch (error) {
+          ticker.stop();
+          emitProgressEvent(config, 'progress', 'trip_planner', {
+            status: 'error',
+            message:
+              error instanceof Error ? error.message : 'Trip planning failed',
+          });
           emitProgressEvent(config, 'tool_end', 'trip_planner', {
             output: {
               status: 'error',
@@ -1847,15 +1895,31 @@ export function buildTravelAgentGraph(
 
       const runHotelAgentStep = async () => {
         emitProgressEvent(config, 'tool_start', 'hotel_agent');
+        const ticker = startStageProgressTicker(
+          config,
+          'hotel_agent',
+          'Finding hotels',
+        );
         try {
           const result = await compiledHotelAgent.invoke({
             messages: hotelMessages,
+          });
+          ticker.stop();
+          emitProgressEvent(config, 'progress', 'hotel_agent', {
+            status: 'completed',
+            message: 'Hotels ready',
           });
           emitProgressEvent(config, 'tool_end', 'hotel_agent', {
             output: { status: 'completed' },
           });
           return result;
         } catch (error) {
+          ticker.stop();
+          emitProgressEvent(config, 'progress', 'hotel_agent', {
+            status: 'error',
+            message:
+              error instanceof Error ? error.message : 'Hotel search failed',
+          });
           emitProgressEvent(config, 'tool_end', 'hotel_agent', {
             output: {
               status: 'error',
@@ -1874,6 +1938,10 @@ export function buildTravelAgentGraph(
         // Day trip: run only trip planner, create empty hotel result
         tripResult = await runTripPlannerStep();
         emitProgressEvent(config, 'tool_start', 'hotel_agent');
+        emitProgressEvent(config, 'progress', 'hotel_agent', {
+          status: 'skipped',
+          message: 'Skipped for day trip',
+        });
         emitProgressEvent(config, 'tool_end', 'hotel_agent', {
           output: { status: 'skipped', reason: 'day_trip' },
         });
@@ -1906,6 +1974,11 @@ export function buildTravelAgentGraph(
         const routeInput = extractRouteInput(mergedMessages);
         if (routeInput) {
           emitProgressEvent(config, 'tool_start', 'route_agent');
+          const routeTicker = startStageProgressTicker(
+            config,
+            'route_agent',
+            'Planning route',
+          );
           try {
             const routeResult = await routePlannerService.planRoute(routeInput);
 
@@ -1976,9 +2049,23 @@ export function buildTravelAgentGraph(
             emitProgressEvent(config, 'tool_end', 'route_agent', {
               output: { status: 'completed', mode: 'deterministic' },
             });
+            routeTicker.stop();
+            emitProgressEvent(config, 'progress', 'route_agent', {
+              status: 'completed',
+              message: 'Route planned',
+            });
+
             emitProgressEvent(config, 'tool_start', 'budget_agent');
+            emitProgressEvent(config, 'progress', 'budget_agent', {
+              status: 'started',
+              message: 'Computing budget',
+            });
             emitProgressEvent(config, 'tool_end', 'budget_agent', {
               output: { status: 'completed', mode: 'deterministic' },
+            });
+            emitProgressEvent(config, 'progress', 'budget_agent', {
+              status: 'completed',
+              message: 'Budget computed',
             });
 
             routeMessages = [
@@ -1992,82 +2079,225 @@ export function buildTravelAgentGraph(
                 name: 'budget_agent',
               }),
             ];
-          } catch {
-            // Fallback: run route_agent and budget_agent with LLMs
+          } catch (error) {
+            routeTicker.stop();
+
+            try {
+              // Fallback: run route_agent and budget_agent with LLMs
+              const routeResult = await compiledRouteAgent.invoke(
+                {
+                  messages: mergedMessages,
+                },
+                config,
+              );
+              emitProgressEvent(config, 'tool_end', 'route_agent', {
+                output: { status: 'completed', mode: 'llm_fallback' },
+              });
+              emitProgressEvent(config, 'progress', 'route_agent', {
+                status: 'completed',
+                message: 'Route planned (fallback)',
+              });
+
+              emitProgressEvent(config, 'tool_start', 'budget_agent');
+              const budgetTicker = startStageProgressTicker(
+                config,
+                'budget_agent',
+                'Computing budget',
+              );
+              try {
+                const budgetResult = await compiledBudgetAgent.invoke(
+                  {
+                    messages: routeResult.messages,
+                  },
+                  config,
+                );
+                budgetTicker.stop();
+                emitProgressEvent(config, 'tool_end', 'budget_agent', {
+                  output: { status: 'completed', mode: 'llm' },
+                });
+                emitProgressEvent(config, 'progress', 'budget_agent', {
+                  status: 'completed',
+                  message: 'Budget computed',
+                });
+
+                routeMessages = budgetResult.messages;
+              } catch (budgetError) {
+                budgetTicker.stop();
+                emitProgressEvent(config, 'tool_end', 'budget_agent', {
+                  output: { status: 'error', mode: 'llm' },
+                });
+                emitProgressEvent(config, 'progress', 'budget_agent', {
+                  status: 'error',
+                  message:
+                    budgetError instanceof Error
+                      ? budgetError.message
+                      : 'Budget computation failed',
+                });
+                throw budgetError;
+              }
+            } catch {
+              emitProgressEvent(config, 'tool_end', 'route_agent', {
+                output: { status: 'error' },
+              });
+              emitProgressEvent(config, 'progress', 'route_agent', {
+                status: 'error',
+                message:
+                  error instanceof Error ? error.message : 'Route failed',
+              });
+              throw error;
+            }
+          }
+        } else {
+          // Could not extract — fallback to LLM agents
+          emitProgressEvent(config, 'tool_start', 'route_agent');
+          const routeTicker = startStageProgressTicker(
+            config,
+            'route_agent',
+            'Planning route',
+          );
+          try {
             const routeResult = await compiledRouteAgent.invoke(
               {
                 messages: mergedMessages,
               },
               config,
             );
+            routeTicker.stop();
             emitProgressEvent(config, 'tool_end', 'route_agent', {
-              output: { status: 'completed', mode: 'llm_fallback' },
+              output: { status: 'completed', mode: 'llm_no_input' },
+            });
+            emitProgressEvent(config, 'progress', 'route_agent', {
+              status: 'completed',
+              message: 'Route planned',
             });
 
             emitProgressEvent(config, 'tool_start', 'budget_agent');
-            const budgetResult = await compiledBudgetAgent.invoke(
-              {
-                messages: routeResult.messages,
-              },
+            const budgetTicker = startStageProgressTicker(
               config,
+              'budget_agent',
+              'Computing budget',
             );
-            emitProgressEvent(config, 'tool_end', 'budget_agent', {
-              output: { status: 'completed', mode: 'llm' },
-            });
+            try {
+              const budgetResult = await compiledBudgetAgent.invoke(
+                {
+                  messages: routeResult.messages,
+                },
+                config,
+              );
+              budgetTicker.stop();
+              emitProgressEvent(config, 'tool_end', 'budget_agent', {
+                output: { status: 'completed', mode: 'llm' },
+              });
+              emitProgressEvent(config, 'progress', 'budget_agent', {
+                status: 'completed',
+                message: 'Budget computed',
+              });
 
-            routeMessages = budgetResult.messages;
+              routeMessages = budgetResult.messages;
+            } catch (budgetError) {
+              budgetTicker.stop();
+              emitProgressEvent(config, 'tool_end', 'budget_agent', {
+                output: { status: 'error', mode: 'llm' },
+              });
+              emitProgressEvent(config, 'progress', 'budget_agent', {
+                status: 'error',
+                message:
+                  budgetError instanceof Error
+                    ? budgetError.message
+                    : 'Budget computation failed',
+              });
+              throw budgetError;
+            }
+          } catch (routeError) {
+            routeTicker.stop();
+            emitProgressEvent(config, 'tool_end', 'route_agent', {
+              output: { status: 'error', mode: 'llm_no_input' },
+            });
+            emitProgressEvent(config, 'progress', 'route_agent', {
+              status: 'error',
+              message:
+                routeError instanceof Error
+                  ? routeError.message
+                  : 'Route planning failed',
+            });
+            throw routeError;
           }
-        } else {
-          // Could not extract — fallback to LLM agents
-          emitProgressEvent(config, 'tool_start', 'route_agent');
+        }
+      } else {
+        // No routePlannerService — fallback to LLM agents
+        emitProgressEvent(config, 'tool_start', 'route_agent');
+        const routeTicker = startStageProgressTicker(
+          config,
+          'route_agent',
+          'Planning route',
+        );
+        try {
           const routeResult = await compiledRouteAgent.invoke(
             {
               messages: mergedMessages,
             },
             config,
           );
+          routeTicker.stop();
           emitProgressEvent(config, 'tool_end', 'route_agent', {
-            output: { status: 'completed', mode: 'llm_no_input' },
+            output: { status: 'completed', mode: 'llm' },
+          });
+          emitProgressEvent(config, 'progress', 'route_agent', {
+            status: 'completed',
+            message: 'Route planned',
           });
 
           emitProgressEvent(config, 'tool_start', 'budget_agent');
-          const budgetResult = await compiledBudgetAgent.invoke(
-            {
-              messages: routeResult.messages,
-            },
+          const budgetTicker = startStageProgressTicker(
             config,
+            'budget_agent',
+            'Computing budget',
           );
-          emitProgressEvent(config, 'tool_end', 'budget_agent', {
-            output: { status: 'completed', mode: 'llm' },
+          try {
+            const budgetResult = await compiledBudgetAgent.invoke(
+              {
+                messages: routeResult.messages,
+              },
+              config,
+            );
+            budgetTicker.stop();
+            emitProgressEvent(config, 'tool_end', 'budget_agent', {
+              output: { status: 'completed', mode: 'llm' },
+            });
+            emitProgressEvent(config, 'progress', 'budget_agent', {
+              status: 'completed',
+              message: 'Budget computed',
+            });
+
+            routeMessages = budgetResult.messages;
+          } catch (budgetError) {
+            budgetTicker.stop();
+            emitProgressEvent(config, 'tool_end', 'budget_agent', {
+              output: { status: 'error', mode: 'llm' },
+            });
+            emitProgressEvent(config, 'progress', 'budget_agent', {
+              status: 'error',
+              message:
+                budgetError instanceof Error
+                  ? budgetError.message
+                  : 'Budget computation failed',
+            });
+            throw budgetError;
+          }
+        } catch (routeError) {
+          routeTicker.stop();
+          emitProgressEvent(config, 'tool_end', 'route_agent', {
+            output: { status: 'error', mode: 'llm' },
           });
-
-          routeMessages = budgetResult.messages;
+          emitProgressEvent(config, 'progress', 'route_agent', {
+            status: 'error',
+            message:
+              routeError instanceof Error
+                ? routeError.message
+                : 'Route planning failed',
+          });
+          throw routeError;
         }
-      } else {
-        // No routePlannerService — fallback to LLM agents
-        emitProgressEvent(config, 'tool_start', 'route_agent');
-        const routeResult = await compiledRouteAgent.invoke(
-          {
-            messages: mergedMessages,
-          },
-          config,
-        );
-        emitProgressEvent(config, 'tool_end', 'route_agent', {
-          output: { status: 'completed', mode: 'llm' },
-        });
-
-        emitProgressEvent(config, 'tool_start', 'budget_agent');
-        const budgetResult = await compiledBudgetAgent.invoke(
-          {
-            messages: routeResult.messages,
-          },
-          config,
-        );
-        emitProgressEvent(config, 'tool_end', 'budget_agent', {
-          output: { status: 'completed', mode: 'llm' },
-        });
-
-        routeMessages = budgetResult.messages;
       }
 
       // Extract structured data for state persistence

@@ -484,6 +484,17 @@ export class AgentService implements OnModuleInit {
             runId: progressEvent.runId,
             output: progressEvent.output ?? null,
           });
+          continue;
+        }
+
+        if (progressEvent.type === 'progress') {
+          yield this.formatSSE('progress', {
+            name: progressEvent.name,
+            runId: progressEvent.runId,
+            status: progressEvent.status ?? 'in_progress',
+            message: progressEvent.message ?? '',
+            timestamp: progressEvent.timestamp ?? Date.now(),
+          });
         }
       }
 
