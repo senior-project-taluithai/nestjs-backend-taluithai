@@ -1143,7 +1143,16 @@ export class PlacesService {
     minRating?: number;
     search?: string;
   }): Promise<{ places: Place[]; totalCount: number }> {
-    const { north, south, east, west, provinceIds, categoryId, minRating, search } = params;
+    const {
+      north,
+      south,
+      east,
+      west,
+      provinceIds,
+      categoryId,
+      minRating,
+      search,
+    } = params;
 
     const query = this.placesRepository
       .createQueryBuilder('place')
@@ -1191,14 +1200,19 @@ export class PlacesService {
     categoryId?: number;
     minRating?: number;
     search?: string;
-  }): Promise<{ provinces: { province_id: number; count: number }[]; totalCount: number }> {
+  }): Promise<{
+    provinces: { province_id: number; count: number }[];
+    totalCount: number;
+  }> {
     const query = this.placesRepository
       .createQueryBuilder('place')
       .select('place.provinceId', 'province_id')
       .addSelect('COUNT(*)', 'count');
 
     if (params?.provinceIds && params.provinceIds.length > 0) {
-      query.where('place.provinceId IN (:...provinceIds)', { provinceIds: params.provinceIds });
+      query.where('place.provinceId IN (:...provinceIds)', {
+        provinceIds: params.provinceIds,
+      });
     }
 
     if (params?.categoryId) {
@@ -1209,7 +1223,9 @@ export class PlacesService {
     }
 
     if (params?.minRating) {
-      query.andWhere('place.rating >= :minRating', { minRating: params.minRating });
+      query.andWhere('place.rating >= :minRating', {
+        minRating: params.minRating,
+      });
     }
 
     if (params?.search) {

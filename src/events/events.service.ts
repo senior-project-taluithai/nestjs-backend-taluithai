@@ -257,7 +257,16 @@ export class EventsService {
     minRating?: number;
     search?: string;
   }): Promise<{ events: Event[]; totalCount: number }> {
-    const { north, south, east, west, provinceIds, categoryId, minRating, search } = params;
+    const {
+      north,
+      south,
+      east,
+      west,
+      provinceIds,
+      categoryId,
+      minRating,
+      search,
+    } = params;
 
     const query = this.eventsRepository
       .createQueryBuilder('event')
@@ -305,14 +314,19 @@ export class EventsService {
     categoryId?: number;
     minRating?: number;
     search?: string;
-  }): Promise<{ provinces: { province_id: number; count: number }[]; totalCount: number }> {
+  }): Promise<{
+    provinces: { province_id: number; count: number }[];
+    totalCount: number;
+  }> {
     const query = this.eventsRepository
       .createQueryBuilder('event')
       .select('event.provinceId', 'province_id')
       .addSelect('COUNT(*)', 'count');
 
     if (params?.provinceIds && params.provinceIds.length > 0) {
-      query.where('event.provinceId IN (:...provinceIds)', { provinceIds: params.provinceIds });
+      query.where('event.provinceId IN (:...provinceIds)', {
+        provinceIds: params.provinceIds,
+      });
     }
 
     if (params?.categoryId) {
@@ -323,7 +337,9 @@ export class EventsService {
     }
 
     if (params?.minRating) {
-      query.andWhere('event.rating >= :minRating', { minRating: params.minRating });
+      query.andWhere('event.rating >= :minRating', {
+        minRating: params.minRating,
+      });
     }
 
     if (params?.search) {

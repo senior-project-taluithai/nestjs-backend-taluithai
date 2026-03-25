@@ -55,7 +55,7 @@ export class EventsController {
     );
   }
 
-@Post('explore')
+  @Post('explore')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Explore events with search and filter' })
   @ApiResponse({
@@ -89,7 +89,9 @@ export class EventsController {
 
   @Get('map')
   @UseInterceptors(ClassSerializerInterceptor)
-  @ApiOperation({ summary: 'Get events within map bounds for viewport rendering' })
+  @ApiOperation({
+    summary: 'Get events within map bounds for viewport rendering',
+  })
   @ApiResponse({
     status: 200,
     description: 'Return events within the specified geographic bounds.',
@@ -102,7 +104,10 @@ export class EventsController {
       east: parseFloat(query.east),
       west: parseFloat(query.west),
       provinceIds: query.province_ids
-        ? query.province_ids.split(',').map(Number).filter((n) => !isNaN(n))
+        ? query.province_ids
+            .split(',')
+            .map(Number)
+            .filter((n) => !isNaN(n))
         : undefined,
       categoryId: query.category_id ? Number(query.category_id) : undefined,
       minRating: query.min_rating ? Number(query.min_rating) : undefined,
@@ -124,7 +129,9 @@ export class EventsController {
   }
 
   @Get('map/summary')
-  @ApiOperation({ summary: 'Get event counts grouped by province for map overview' })
+  @ApiOperation({
+    summary: 'Get event counts grouped by province for map overview',
+  })
   @ApiResponse({
     status: 200,
     description: 'Return event counts per province.',
@@ -137,7 +144,10 @@ export class EventsController {
   ) {
     return this.eventsService.getProvinceCounts({
       provinceIds: provinceIds
-        ? provinceIds.split(',').map(Number).filter((n) => !isNaN(n))
+        ? provinceIds
+            .split(',')
+            .map(Number)
+            .filter((n) => !isNaN(n))
         : undefined,
       categoryId: categoryId ? Number(categoryId) : undefined,
       minRating: minRating ? Number(minRating) : undefined,
