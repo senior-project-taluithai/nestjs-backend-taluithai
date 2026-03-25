@@ -96,12 +96,17 @@ export class AgentController {
     res.flushHeaders();
 
     const flush = (res as Response & { flush?: () => void }).flush;
+    res.write(': connected\n\n');
+    if (typeof flush === 'function') {
+      flush.call(res);
+    }
+
     const heartbeat = setInterval(() => {
       res.write(': ping\n\n');
       if (typeof flush === 'function') {
         flush.call(res);
       }
-    }, 15000);
+    }, 5000);
 
     try {
       const config = {
@@ -135,7 +140,9 @@ export class AgentController {
       clearInterval(heartbeat);
     }
 
-    res.end();
+    if (!res.writableEnded) {
+      res.end();
+    }
   }
 
   // ==================== Assistants ====================

@@ -8,6 +8,7 @@ import { ThumbnailLookupFn } from './types';
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { RoutePlannerService } from '../route-planner/route-planner.service';
 import { computeBudget } from './utils/thai-price-table';
+import { progressEventsBus, getStageRunId } from './progress-events';
 import {
   TravelAgentAnnotation,
   TripJson,
@@ -1246,6 +1247,34 @@ interface IntentContext {
   hasBudget?: boolean;
 }
 
+function getProgressChannelId(config: unknown): string {
+  if (!config || typeof config !== 'object') return '';
+
+  const configurable = (config as { configurable?: unknown }).configurable;
+  if (!configurable || typeof configurable !== 'object') return '';
+
+  const raw = (configurable as Record<string, unknown>).progress_channel_id;
+  return typeof raw === 'string' ? raw : '';
+}
+
+function emitProgressEvent(
+  config: unknown,
+  type: 'tool_start' | 'tool_end',
+  name: string,
+  payload?: { input?: Record<string, unknown>; output?: unknown },
+): void {
+  const channelId = getProgressChannelId(config);
+  if (!channelId) return;
+
+  progressEventsBus.publish(channelId, {
+    type,
+    name,
+    runId: getStageRunId(channelId, name),
+    input: payload?.input,
+    output: payload?.output,
+  });
+}
+
 function detectIntent(text: string, context?: IntentContext): Intent {
   const lower = text.toLowerCase();
   const hasTrip = context?.hasTrip ?? false;
@@ -1796,12 +1825,58 @@ export function buildTravelAgentGraph(
           ]
         : messages;
 
+      const runTripPlannerStep = async () => {
+        emitProgressEvent(config, 'tool_start', 'trip_planner');
+        try {
+          const result = await compiledTripPlanner.invoke({ messages });
+          emitProgressEvent(config, 'tool_end', 'trip_planner', {
+            output: { status: 'completed' },
+          });
+          return result;
+        } catch (error) {
+          emitProgressEvent(config, 'tool_end', 'trip_planner', {
+            output: {
+              status: 'error',
+              message:
+                error instanceof Error ? error.message : 'trip planner failed',
+            },
+          });
+          throw error;
+        }
+      };
+
+      const runHotelAgentStep = async () => {
+        emitProgressEvent(config, 'tool_start', 'hotel_agent');
+        try {
+          const result = await compiledHotelAgent.invoke({
+            messages: hotelMessages,
+          });
+          emitProgressEvent(config, 'tool_end', 'hotel_agent', {
+            output: { status: 'completed' },
+          });
+          return result;
+        } catch (error) {
+          emitProgressEvent(config, 'tool_end', 'hotel_agent', {
+            output: {
+              status: 'error',
+              message:
+                error instanceof Error ? error.message : 'hotel agent failed',
+            },
+          });
+          throw error;
+        }
+      };
+
       // Step 1: Run trip_planner + hotel_agent (parallel for multi-day, sequential for day trips)
       let tripResult, hotelResult;
 
       if (isDayTrip) {
         // Day trip: run only trip planner, create empty hotel result
-        tripResult = await compiledTripPlanner.invoke({ messages });
+        tripResult = await runTripPlannerStep();
+        emitProgressEvent(config, 'tool_start', 'hotel_agent');
+        emitProgressEvent(config, 'tool_end', 'hotel_agent', {
+          output: { status: 'skipped', reason: 'day_trip' },
+        });
         hotelResult = {
           messages: [
             new AIMessage({
@@ -1817,8 +1892,8 @@ export function buildTravelAgentGraph(
       } else {
         // Multi-day trip: run BOTH in parallel for speed
         [tripResult, hotelResult] = await Promise.all([
-          compiledTripPlanner.invoke({ messages }),
-          compiledHotelAgent.invoke({ messages: hotelMessages }),
+          runTripPlannerStep(),
+          runHotelAgentStep(),
         ]);
       }
 
@@ -1830,6 +1905,7 @@ export function buildTravelAgentGraph(
       if (routePlannerService) {
         const routeInput = extractRouteInput(mergedMessages);
         if (routeInput) {
+          emitProgressEvent(config, 'tool_start', 'route_agent');
           try {
             const routeResult = await routePlannerService.planRoute(routeInput);
 
@@ -1897,6 +1973,14 @@ export function buildTravelAgentGraph(
               userBudget,
             );
 
+            emitProgressEvent(config, 'tool_end', 'route_agent', {
+              output: { status: 'completed', mode: 'deterministic' },
+            });
+            emitProgressEvent(config, 'tool_start', 'budget_agent');
+            emitProgressEvent(config, 'tool_end', 'budget_agent', {
+              output: { status: 'completed', mode: 'deterministic' },
+            });
+
             routeMessages = [
               ...mergedMessages,
               new AIMessage({
@@ -1916,44 +2000,73 @@ export function buildTravelAgentGraph(
               },
               config,
             );
+            emitProgressEvent(config, 'tool_end', 'route_agent', {
+              output: { status: 'completed', mode: 'llm_fallback' },
+            });
+
+            emitProgressEvent(config, 'tool_start', 'budget_agent');
             const budgetResult = await compiledBudgetAgent.invoke(
               {
                 messages: routeResult.messages,
               },
               config,
             );
+            emitProgressEvent(config, 'tool_end', 'budget_agent', {
+              output: { status: 'completed', mode: 'llm' },
+            });
+
             routeMessages = budgetResult.messages;
           }
         } else {
           // Could not extract — fallback to LLM agents
+          emitProgressEvent(config, 'tool_start', 'route_agent');
           const routeResult = await compiledRouteAgent.invoke(
             {
               messages: mergedMessages,
             },
             config,
           );
+          emitProgressEvent(config, 'tool_end', 'route_agent', {
+            output: { status: 'completed', mode: 'llm_no_input' },
+          });
+
+          emitProgressEvent(config, 'tool_start', 'budget_agent');
           const budgetResult = await compiledBudgetAgent.invoke(
             {
               messages: routeResult.messages,
             },
             config,
           );
+          emitProgressEvent(config, 'tool_end', 'budget_agent', {
+            output: { status: 'completed', mode: 'llm' },
+          });
+
           routeMessages = budgetResult.messages;
         }
       } else {
         // No routePlannerService — fallback to LLM agents
+        emitProgressEvent(config, 'tool_start', 'route_agent');
         const routeResult = await compiledRouteAgent.invoke(
           {
             messages: mergedMessages,
           },
           config,
         );
+        emitProgressEvent(config, 'tool_end', 'route_agent', {
+          output: { status: 'completed', mode: 'llm' },
+        });
+
+        emitProgressEvent(config, 'tool_start', 'budget_agent');
         const budgetResult = await compiledBudgetAgent.invoke(
           {
             messages: routeResult.messages,
           },
           config,
         );
+        emitProgressEvent(config, 'tool_end', 'budget_agent', {
+          output: { status: 'completed', mode: 'llm' },
+        });
+
         routeMessages = budgetResult.messages;
       }
 
