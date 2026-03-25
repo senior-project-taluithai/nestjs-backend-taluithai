@@ -145,7 +145,9 @@ export class PlacesController {
 
   @Get('map')
   @UseInterceptors(ClassSerializerInterceptor)
-  @ApiOperation({ summary: 'Get places within map bounds for viewport rendering' })
+  @ApiOperation({
+    summary: 'Get places within map bounds for viewport rendering',
+  })
   @ApiResponse({
     status: 200,
     description: 'Return places within the specified geographic bounds.',
@@ -158,7 +160,10 @@ export class PlacesController {
       east: parseFloat(query.east),
       west: parseFloat(query.west),
       provinceIds: query.province_ids
-        ? query.province_ids.split(',').map(Number).filter((n) => !isNaN(n))
+        ? query.province_ids
+            .split(',')
+            .map(Number)
+            .filter((n) => !isNaN(n))
         : undefined,
       categoryId: query.category_id ? Number(query.category_id) : undefined,
       minRating: query.min_rating ? Number(query.min_rating) : undefined,
@@ -180,7 +185,9 @@ export class PlacesController {
   }
 
   @Get('map/summary')
-  @ApiOperation({ summary: 'Get place counts grouped by province for map overview' })
+  @ApiOperation({
+    summary: 'Get place counts grouped by province for map overview',
+  })
   @ApiResponse({
     status: 200,
     description: 'Return place counts per province.',
@@ -193,7 +200,10 @@ export class PlacesController {
   ) {
     return this.placesService.getProvinceCounts({
       provinceIds: provinceIds
-        ? provinceIds.split(',').map(Number).filter((n) => !isNaN(n))
+        ? provinceIds
+            .split(',')
+            .map(Number)
+            .filter((n) => !isNaN(n))
         : undefined,
       categoryId: categoryId ? Number(categoryId) : undefined,
       minRating: minRating ? Number(minRating) : undefined,

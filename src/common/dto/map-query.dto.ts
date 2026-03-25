@@ -1,4 +1,9 @@
-import { IsNumber, IsOptional, IsNumberString, IsString } from 'class-validator';
+import {
+  IsNumber,
+  IsOptional,
+  IsNumberString,
+  IsString,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class MapQueryDto {

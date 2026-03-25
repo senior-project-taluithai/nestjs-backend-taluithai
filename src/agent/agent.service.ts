@@ -872,13 +872,8 @@ export class AgentService implements OnModuleInit {
       if (!chunk.response_metadata) {
         chunk.response_metadata = {};
       }
-      // Skip chunks that only contain tool_call_chunks (no text content)
-      const hasToolChunks =
-        Array.isArray(chunk.tool_call_chunks) &&
-        chunk.tool_call_chunks.length > 0;
-      if (hasToolChunks) {
-        return '';
-      }
+      // Note: tool_call_chunks are now passed through to the frontend
+      // so it can show tool call badges (Running/Completed) in real-time.
     }
 
     // Patch on_chat_model_end — add response_metadata if missing
