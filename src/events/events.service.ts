@@ -247,6 +247,59 @@ export class EventsService {
     return query.orderBy('event.startDate', 'ASC').take(limit).getMany();
   }
 
+  async findInBounds(params: {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+    provinceIds?: number[];
+    categoryId?: number;
+    minRating?: number;
+    search?: string;
+  }): Promise<{ events: Event[]; totalCount: number }> {
+    const { north, south, east, west, provinceIds, categoryId, minRating, search } = params;
+
+    const query = this.eventsRepository
+      .createQueryBuilder('event')
+      .leftJoinAndSelect('event.province', 'province')
+      .leftJoinAndSelect('event.images', 'images')
+      .leftJoinAndSelect('event.eventCategories', 'eventCategories')
+      .leftJoinAndSelect('eventCategories.category', 'category')
+      .where('event.latitude BETWEEN :south AND :north', { south, north })
+      .andWhere('event.longitude BETWEEN :west AND :east', { west, east });
+
+    if (provinceIds && provinceIds.length > 0) {
+      query.andWhere('event.provinceId IN (:...provinceIds)', { provinceIds });
+    }
+
+    if (categoryId) {
+      query.andWhere('category.id = :categoryId', { categoryId });
+    }
+
+    if (minRating) {
+      query.andWhere('event.rating >= :minRating', { minRating });
+    }
+
+    if (search) {
+      query.andWhere(
+        '(LOWER(event.name) LIKE LOWER(:search) OR LOWER(event.nameEn) LIKE LOWER(:search))',
+        { search: `%${search}%` },
+      );
+    }
+
+    query
+      .orderBy('event.rating', 'DESC')
+      .addOrderBy('event.startDate', 'ASC')
+      .limit(500);
+
+    const events = await query.getMany();
+
+    return {
+      events,
+      totalCount: events.length,
+    };
+  }
+
   async createReview(
     eventId: number,
     userId: string,

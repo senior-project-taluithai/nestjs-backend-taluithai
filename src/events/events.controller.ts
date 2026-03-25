@@ -25,6 +25,7 @@ import { PaginatedResultDto } from '../common/dto/paginated-result.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { EventReviewDto } from '../reviews/dto/review.dto';
 import { TiktokService } from '../tiktok/tiktok.service';
+import { MapQueryDto } from '../common/dto/map-query.dto';
 
 @ApiTags('Events')
 @Controller('events')
@@ -54,7 +55,7 @@ export class EventsController {
     );
   }
 
-  @Post('explore')
+@Post('explore')
   @UseInterceptors(ClassSerializerInterceptor)
   @ApiOperation({ summary: 'Explore events with search and filter' })
   @ApiResponse({
@@ -83,6 +84,42 @@ export class EventsController {
       total,
       avgRating,
       totalReviews,
+    };
+  }
+
+  @Get('map')
+  @UseInterceptors(ClassSerializerInterceptor)
+  @ApiOperation({ summary: 'Get events within map bounds for viewport rendering' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return events within the specified geographic bounds.',
+    type: Object,
+  })
+  async getEventsForMap(@Query() query: MapQueryDto) {
+    const { events, totalCount } = await this.eventsService.findInBounds({
+      north: parseFloat(query.north),
+      south: parseFloat(query.south),
+      east: parseFloat(query.east),
+      west: parseFloat(query.west),
+      provinceIds: query.province_ids
+        ? query.province_ids.split(',').map(Number).filter((n) => !isNaN(n))
+        : undefined,
+      categoryId: query.category_id ? Number(query.category_id) : undefined,
+      minRating: query.min_rating ? Number(query.min_rating) : undefined,
+      search: query.search,
+    });
+
+    return {
+      events: events.map(
+        (event: any) =>
+          new EventDto({
+            ...event,
+            categories:
+              event.eventCategories?.map((ec: any) => ec.category.nameEn) || [],
+            imageUrls: event.images?.map((i: any) => i.url) || [],
+          }),
+      ),
+      totalCount,
     };
   }
 
