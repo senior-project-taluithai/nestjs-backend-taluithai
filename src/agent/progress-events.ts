@@ -1,4 +1,11 @@
-type ProgressEventType = 'tool_start' | 'tool_end';
+type ProgressEventType = 'tool_start' | 'tool_end' | 'progress';
+
+type ProgressStatus =
+  | 'started'
+  | 'in_progress'
+  | 'completed'
+  | 'error'
+  | 'skipped';
 
 export interface ProgressEvent {
   type: ProgressEventType;
@@ -6,6 +13,9 @@ export interface ProgressEvent {
   runId: string;
   input?: Record<string, unknown>;
   output?: unknown;
+  status?: ProgressStatus;
+  message?: string;
+  timestamp?: number;
 }
 
 interface ProgressChannel {
