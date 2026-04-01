@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { createGzip, constants } from 'zlib';
 import { AuthGuard } from '@nestjs/passport';
 import { AgentService, ThreadInfo } from './agent.service';
 
@@ -90,11 +91,10 @@ export class AgentController {
     );
 
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-    res.setHeader('Content-Encoding', 'identity');
-    res.flushHeaders();
+    res.setHeader('Content-Encoding', 'gzip');
 
     const socket = (
       res as Response & {
@@ -105,19 +105,22 @@ export class AgentController {
       socket.setNoDelay(true);
     }
 
-    const flush = (res as Response & { flush?: () => void }).flush;
-    // SSE padding helps some proxies flush early chunks immediately.
-    res.write(`:${' '.repeat(2048)}\n\n`);
-    res.write(': connected\n\n');
-    if (typeof flush === 'function') {
-      flush.call(res);
-    }
+    // Gzip stream with Z_SYNC_FLUSH ensures each SSE event is delivered
+    // immediately through Cloud Run's GFE proxy without buffering.
+    const gzip = createGzip();
+    gzip.pipe(res as unknown as NodeJS.WritableStream, { end: false });
+
+    const writeSSE = (data: string) => {
+      gzip.write(data);
+      gzip.flush(constants.Z_SYNC_FLUSH);
+    };
+
+    // SSE padding helps proxies flush early chunks immediately.
+    writeSSE(`:${' '.repeat(2048)}\n\n`);
+    writeSSE(': connected\n\n');
 
     const heartbeat = setInterval(() => {
-      res.write(': ping\n\n');
-      if (typeof flush === 'function') {
-        flush.call(res);
-      }
+      writeSSE(': ping\n\n');
     }, 5000);
 
     try {
@@ -135,26 +138,23 @@ export class AgentController {
       );
 
       for await (const chunk of stream) {
-        res.write(chunk);
-        if (typeof flush === 'function') {
-          flush.call(res);
-        }
+        writeSSE(chunk);
       }
     } catch (error) {
       this.logger.error(`Stream error: ${(error as Error).message}`);
-      res.write(
+      writeSSE(
         `event: error\ndata: ${JSON.stringify({ message: (error as Error).message })}\n\n`,
       );
-      if (typeof flush === 'function') {
-        flush.call(res);
-      }
     } finally {
       clearInterval(heartbeat);
     }
 
-    if (!res.writableEnded) {
-      res.end();
-    }
+    gzip.end();
+    gzip.once('end', () => {
+      if (!res.writableEnded) {
+        res.end();
+      }
+    });
   }
 
   // ==================== Assistants ====================
